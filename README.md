@@ -48,6 +48,11 @@ Adding a player (`--add`, or just editing `players.txt`) takes effect on the
 next cycle; no restart needed. Only their last ~20 games are available at
 that point, same as everyone else on day one.
 
+With `--push` on, every cycle starts with a `git pull`, so edits made on
+GitHub (like a new name in `players.txt`) apply within one cycle. Code
+changes are pulled too, but only take effect after a restart; the log says
+so when that happens.
+
 
 `.gitignore` keeps the database, logs and `.env` out of the repo. Only your
 friends' builds are exported; strangers from your lobbies stay local.

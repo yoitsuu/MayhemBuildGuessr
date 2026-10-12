@@ -411,24 +411,56 @@ def export(lcu: LCU | None) -> Path:
     return OUT_FILE
 
 
+def _git(*args, timeout=60):
+    """Run git without ever prompting: in the background there is nobody to
+    answer, so it fails fast and the failure gets logged instead of hanging."""
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    return subprocess.run(["git", *args], cwd=HERE, env=env, capture_output=True,
+                          text=True, timeout=timeout,
+                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def git_pull() -> list[str]:
+    """Pull changes made on GitHub (players.txt edits, code changes).
+    Returns the files that changed, or [] if nothing did or the pull failed."""
+    if not (HERE / ".git").exists():
+        return []
+    try:
+        before = _git("rev-parse", "HEAD").stdout.strip()
+        pull = _git("pull", "--rebase", "--autostash")
+        if pull.returncode != 0:
+            log.warning(f"git pull failed: {pull.stderr.strip()[:200]}")
+            _git("rebase", "--abort")
+            return []
+        after = _git("rev-parse", "HEAD").stdout.strip()
+        if before == after:
+            return []
+        changed = _git("diff", "--name-only", before, after).stdout.split()
+        log.info(f"Pulled from GitHub: {', '.join(changed)}")
+        code = [f for f in changed if f.endswith((".py", ".bat"))]
+        if code:
+            log.info("  Code changed; restart the collector (stop, then start) "
+                     "to use the new version.")
+        return changed
+    except subprocess.TimeoutExpired:
+        log.warning("git pull timed out")
+    except FileNotFoundError:
+        log.warning("git isn't installed or isn't on PATH")
+    return []
+
+
 def git_push():
-    """Commit docs/data.js and push. Never prompts: in the background there is
-    nobody to answer, so it fails fast and logs instead of hanging."""
+    """Commit docs/data.js and push it."""
     if not (HERE / ".git").exists():
         log.warning("--push: not a git repository, skipping")
         return
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-
-    def git(*args, timeout=60):
-        return subprocess.run(["git", *args], cwd=HERE, env=env, capture_output=True,
-                              text=True, timeout=timeout,
-                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    git = _git
     try:
         rel = str(OUT_FILE.relative_to(HERE)).replace("\\", "/")
         git("add", rel)
         if git("diff", "--cached", "--quiet").returncode != 0:
             git("commit", "-m", "Update Mayhem games", "--", rel)
-        # Pick up any changes you pushed from elsewhere before pushing ours.
+        # Pick up anything pushed from elsewhere since the start of this cycle.
         pull = git("pull", "--rebase", "--autostash")
         if pull.returncode != 0:
             log.warning(f"git pull failed: {pull.stderr.strip()[:200]}")
@@ -499,6 +531,9 @@ def run_cycle(argv) -> bool:
     lcu = connect(argv)
     if not lcu:
         return False
+    # With --push, start each cycle by pulling, so edits made on GitHub
+    # (like a new name in players.txt) apply to this very collection.
+    pulled = git_pull() if "--push" in argv else []
     db = open_db()
     log.info("League client found; collecting...")
     try:
@@ -506,7 +541,7 @@ def run_cycle(argv) -> bool:
     except ClientUnavailable:
         log.info("Client closed mid-collection; will retry next cycle.")
         return False
-    if added or not OUT_FILE.exists():
+    if added or not OUT_FILE.exists() or "players.txt" in pulled:
         export(lcu)
         if "--push" in argv:
             git_push()
