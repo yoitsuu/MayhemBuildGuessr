@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Whose Build?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0f17;
+    --panel: #121826;
+    --panel-2: #182033;
+    --line: #26304a;
+    --text: #e6e9f0;
+    --muted: #8b93a7;
+    --gold: #c8a14b;
+    --gold-soft: #c8a14b22;
+    --good: #3fb37f;
+    --bad: #e05561;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 Inter, system-ui, sans-serif;
+    background-image: radial-gradient(ellipse at top, #1a2440 0%, var(--bg) 60%);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+  h1 { font-family: Cinzel, serif; font-size: 26px; margin: 0; color: var(--gold); letter-spacing: .5px; }
+  h1 small { display: block; font: 500 12px Inter, sans-serif; color: var(--muted); letter-spacing: 0; }
+  .score { text-align: right; font-size: 13px; color: var(--muted); }
+  .score b { color: var(--text); font-size: 18px; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin-bottom: 14px; }
+  button {
+    font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 12px; cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  button:hover:not(:disabled) { border-color: var(--gold); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--gold); color: #1a1405; border-color: var(--gold); font-weight: 600; }
+
+  /* settings */
+  details.settings summary { cursor: pointer; color: var(--muted); font-weight: 500; list-style: none; }
+  details.settings summary::before { content: "⚙  "; }
+  details.settings[open] summary { color: var(--text); margin-bottom: 12px; }
+  .players { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; user-select: none; font-size: 14px; }
+  .chip input { accent-color: var(--gold); margin: 0; }
+  .chip.on { border-color: var(--gold); background: var(--gold-soft); }
+  .chip .n { color: var(--muted); font-size: 12px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  .row label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+  select { font: inherit; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+  .pool { color: var(--muted); font-size: 13px; margin-top: 10px; }
+
+  /* round */
+  .champ { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+  .portrait { width: 72px; height: 72px; border-radius: 10px; border: 2px solid var(--gold); background: var(--panel-2); display: grid; place-items: center; font: 700 30px Cinzel, serif; color: var(--gold); overflow: hidden; flex: none; }
+  .portrait img { width: 100%; height: 100%; object-fit: cover; }
+  .champ .name { font: 700 22px Cinzel, serif; }
+  .champ .sub { color: var(--muted); font-size: 13px; }
+  .items { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .item { text-align: center; }
+  .icon { width: 100%; aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); display: grid; place-items: center; overflow: hidden; font-size: 11px; color: var(--muted); padding: 2px; }
+  .icon img { width: 100%; height: 100%; object-fit: cover; }
+  .item .label { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.25; word-break: break-word; }
+  .item.empty .icon { border-style: dashed; opacity: .4; }
+
+  .hints { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 4px; }
+  .hints button { font-size: 13px; padding: 6px 10px; }
+  .hint-out { margin-top: 12px; display: grid; gap: 10px; }
+  .hint-out:empty { display: none; }
+  .hint { background: var(--panel-2); border-radius: 8px; padding: 10px 12px; }
+  .hint h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 600; }
+  .mini { display: flex; flex-wrap: wrap; gap: 10px; }
+  .mini span { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+  .mini img, .mini .ph { width: 28px; height: 28px; border-radius: 6px; background: var(--bg); }
+  .foes .foe { width: 44px; height: 44px; border-radius: 8px; overflow: hidden; background: var(--bg); border: 1px solid var(--line); display: grid; place-items: center; font-size: 10px; text-align: center; color: var(--muted); }
+  .foes .foe img { width: 100%; height: 100%; border-radius: 0; }
+  .r-kSilver { box-shadow: 0 0 0 2px #9aa4b5; }
+  .r-kGold   { box-shadow: 0 0 0 2px var(--gold); }
+  .r-kPrismatic { box-shadow: 0 0 0 2px #b06cf0; }
+
+  .guess-title { font-weight: 600; margin: 0 0 10px; }
+  .guesses { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+  .guesses button { text-align: left; display: flex; gap: 8px; align-items: center; }
+  .guesses .k { color: var(--muted); font-size: 12px; min-width: 14px; }
+  .guesses button.correct { background: #3fb37f26; border-color: var(--good); }
+  .guesses button.wrong { background: #e0556126; border-color: var(--bad); }
+  .verdict { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+  .verdict .msg { font-weight: 600; }
+  .verdict .msg.good { color: var(--good); }
+  .verdict .msg.bad { color: var(--bad); }
+  .verdict .meta { color: var(--muted); font-size: 13px; }
+
+  .empty-state { text-align: center; color: var(--muted); padding: 40px 10px; }
+  .empty-state code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px; color: var(--text); }
+  footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 24px; }
+
+  @media (max-width: 520px) {
+    .items { grid-template-columns: repeat(3, 1fr); }
+    h1 { font-size: 21px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Whose Build?<small>ARAM Mayhem edition</small></h1>
+    <div class="score" id="score"></div>
+  </header>
+
+  <details class="settings card" id="settings">
+    <summary>Players &amp; options</summary>
+    <div class="row" style="justify-content:space-between">
+      <span style="color:var(--muted);font-size:13px">Include these players:</span>
+      <span><button id="all" type="button">All</button> <button id="none" type="button">None</button></span>
+    </div>
+    <div class="players" id="players"></div>
+    <div class="row">
+      <label><input type="checkbox" id="hideChamp"> Hide champion (show its class instead)</label>
+      <label>Skip games from the last
+        <select id="skipDays">
+          <option value="0">0 days</option><option value="1">1 day</option>
+          <option value="3">3 days</option><option value="7">7 days</option>
+          <option value="14">14 days</option>
+        </select></label>
+    </div>
+    <div class="pool" id="pool"></div>
+  </details>
+
+  <main id="main"></main>
+  <footer id="footer"></footer>
+</div>
+
+<script src="data.js"></script>
+<script>
+(() => {
+  const D = window.MAYHEM_DATA;
+  const $ = (s) => document.querySelector(s);
+  const main = $("#main");
+
+  if (!D || !D.rounds || !D.rounds.length) {
+    main.innerHTML = `<div class="card empty-state">No games yet.<br><br>
+      Run <code>python collect.py --once</code> with the League client open,
+      then reload this page.</div>`;
+    $("#settings").style.display = "none";
+    return;
+  }
+
+  // ---------- settings (remembered per browser) ----------
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem("whosebuild." + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem("whosebuild." + k, JSON.stringify(v)); } catch {} },
+  };
+  const players = D.players;
+  let selected = new Set(store.get("players", players).filter((p) => players.includes(p)));
+  if (selected.size === 0) selected = new Set(players);
+  const hideChamp = $("#hideChamp"), skipDays = $("#skipDays");
+  hideChamp.checked = store.get("hideChamp", false);
+  skipDays.value = String(store.get("skipDays", 0));
+
+  const short = (rid) => rid.split("#")[0];
+  const countFor = (p) => D.rounds.filter((r) => r.p === p).length;
+
+  function renderPlayers() {
+    $("#players").innerHTML = players.map((p) => `
+      <label class="chip ${selected.has(p) ? "on" : ""}" title="${esc(p)}">
+        <input type="checkbox" data-p="${esc(p)}" ${selected.has(p) ? "checked" : ""}>
+        ${esc(short(p))} <span class="n">${countFor(p)}</span>
+      </label>`).join("");
+    $("#players").querySelectorAll("input").forEach((cb) => cb.addEventListener("change", () => {
+      cb.checked ? selected.add(cb.dataset.p) : selected.delete(cb.dataset.p);
+      saveAndRestart();
+    }));
+    const pool = eligible();
+    const ps = new Set(pool.map((r) => r.p));
+    $("#pool").textContent = `${pool.length} builds in the pool from ${ps.size} player${ps.size === 1 ? "" : "s"}.`;
+  }
+  function saveAndRestart() {
+    store.set("players", [...selected]);
+    store.set("hideChamp", hideChamp.checked);
+    store.set("skipDays", +skipDays.value);
+    renderPlayers();
+    newRound();
+  }
+  $("#all").onclick = () => { selected = new Set(players); saveAndRestart(); };
+  $("#none").onclick = () => { selected = new Set(); saveAndRestart(); };
+  hideChamp.onchange = saveAndRestart;
+  skipDays.onchange = saveAndRestart;
+
+  // ---------- data helpers ----------
+  function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+  const look = (table, id, kind) => (D[table] && D[table][id]) || { name: `${kind} ${id}`, icon: null };
+  const iconEl = (o, cls = "") => o.icon
+    ? `<img class="${cls}" src="${esc(o.icon)}" alt="${esc(o.name)}" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'ph',textContent:''}))">`
+    : `<span class="ph ${cls}"></span>`;
+  const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
+
+  // Guess options: selected players who have at least one build in the pool,
+  // so nobody can be eliminated just for having no games.
+  function choiceList() {
+    const has = new Set(eligible().map((r) => r.p));
+    return players.filter((p) => selected.has(p) && has.has(p));
+  }
+
+  function eligible() {
+    const cutoff = Date.now() - (+skipDays.value) * 86400000;
+    return D.rounds.filter((r) => selected.has(r.p) && (+skipDays.value === 0 || r.t < cutoff));
+  }
+
+  // ---------- score ----------
+  const score = { right: 0, total: 0, streak: 0, best: store.get("best", 0) };
+  function renderScore() {
+    $("#score").innerHTML = `<b>${score.right}/${score.total}</b><br>streak ${score.streak} · best ${score.best}`;
+  }
+
+  // ---------- rounds ----------
+  const seen = new Set();
+  let cur = null, revealed = {}, answered = false;
+
+  function pickRound() {
+    const pool = eligible();
+    if (!pool.length) return null;
+    const byPlayer = {};
+    pool.forEach((r) => (byPlayer[r.p] ||= []).push(r));
+    const ps = Object.keys(byPlayer);
+    // 1) random player, 2) random game of theirs (prefer ones not seen yet)
+    const p = ps[Math.floor(Math.random() * ps.length)];
+    let opts = byPlayer[p].filter((r) => !seen.has(r.g + "|" + r.p));
+    if (!opts.length) { byPlayer[p].forEach((r) => seen.delete(r.g + "|" + r.p)); opts = byPlayer[p]; }
+    return opts[Math.floor(Math.random() * opts.length)];
+  }
+
+  function newRound() {
+    renderScore();
+    const choices = choiceList();
+    if (choices.length < 2) {
+      main.innerHTML = `<div class="card empty-state">Pick at least two players with games in <b>Players &amp; options</b>.</div>`;
+      $("#settings").open = true;
+      return;
+    }
+    cur = pickRound();
+    if (!cur) {
+      main.innerHTML = `<div class="card empty-state">No games match these settings.<br>Try including more players or skipping fewer days.</div>`;
+      return;
+    }
+    seen.add(cur.g + "|" + cur.p);
+    revealed = { champ: !hideChamp.checked };
+    answered = false;
+    render();
+  }
+
+  function render() {
+    const r = cur;
+    const champ = look("champions", r.c, "Champion");
+    const roles = (champ.roles || []).map(cap).join(" · ") || "Unknown class";
+    const champHtml = revealed.champ
+      ? `<div class="portrait">${champ.icon ? `<img src="${esc(champ.icon)}" alt="" onerror="this.replaceWith('?')">` : "?"}</div>
+         <div><div class="name">${esc(champ.name)}</div><div class="sub">${esc(roles)}</div></div>`
+      : `<div class="portrait">?</div>
+         <div><div class="name">Hidden champion</div><div class="sub">${esc(roles)}</div></div>`;
+
+    const slots = [...r.items];
+    while (slots.length < 6) slots.push(null);
+    const itemsHtml = slots.map((id) => {
+      if (!id) return `<div class="item empty"><div class="icon"></div></div>`;
+      const it = look("items", id, "Item");
+      return `<div class="item" title="${esc(it.name)}"><div class="icon" data-name="${esc(it.name)}">${it.icon ? `<img src="${esc(it.icon)}" alt="" loading="lazy" onerror="this.replaceWith(this.parentNode.dataset.name)">` : esc(it.name)}</div>
+              <div class="label">${esc(it.name)}</div></div>`;
+    }).join("");
+
+    const hintBtns = [
+      !revealed.champ && ["champ", "Show champion"],
+      ["aug", "Augments"],
+      ["spells", "Summoner spells"],
+      ["kda", "KDA & result"],
+      r.foes && r.foes.length && ["foes", "Enemy team"],
+    ].filter(Boolean).map(([k, label]) =>
+      `<button type="button" data-hint="${k}" ${revealed[k] ? "disabled" : ""}>${label}</button>`).join("");
+
+    let hintOut = "";
+    if (revealed.aug) {
+      const a = r.aug.map((id) => { const o = look("augments", id, "Augment");
+        return `<span class="r-${esc(o.rarity || "")}" title="${esc(o.name)}">${iconEl(o)}${esc(o.name)}</span>`; }).join("");
+      hintOut += `<div class="hint"><h4>Augments</h4><div class="mini">${a || "<span>None recorded</span>"}</div></div>`;
+    }
+    if (revealed.spells) {
+      const s = r.spells.filter(Boolean).map((id) => { const o = look("spells", id, "Spell");
+        return `<span>${iconEl(o)}${esc(o.name)}</span>`; }).join("");
+      hintOut += `<div class="hint"><h4>Summoner spells</h4><div class="mini">${s}</div></div>`;
+    }
+    if (revealed.kda) {
+      const [k, d, a] = r.kda;
+      hintOut += `<div class="hint"><h4>KDA &amp; result</h4><div class="mini">
+        <span><b>${k} / ${d} / ${a}</b></span>
+        <span style="color:${r.win ? "var(--good)" : "var(--bad)"}">${r.win ? "Victory" : "Defeat"}</span>
+        <span>${Math.round(r.dur / 60)} min</span>
+        ${r.dmg ? `<span>${r.dmg.toLocaleString()} dmg to champs</span>` : ""}</div></div>`;
+    }
+
+    if (revealed.foes) {
+      const f = r.foes.map((id) => { const o = look("champions", id, "Champion");
+        return `<span class="foe" title="${esc(o.name)}">${o.icon
+          ? `<img src="${esc(o.icon)}" alt="${esc(o.name)}" loading="lazy" onerror="this.replaceWith(this.alt)">`
+          : esc(o.name)}</span>`; }).join("");
+      hintOut += `<div class="hint"><h4>Enemy team</h4><div class="mini foes">${f}</div></div>`;
+    }
+
+    const choices = choiceList();
+    const guessHtml = choices.map((p, i) => {
+      let cls = "";
+      if (answered) cls = p === r.p ? "correct" : (p === answered ? "wrong" : "");
+      return `<button type="button" data-guess="${esc(p)}" class="${cls}" ${answered ? "disabled" : ""}>
+        <span class="k">${i < 9 ? i + 1 : ""}</span>${esc(short(p))}</button>`;
+    }).join("");
+
+    let verdict = "";
+    if (answered) {
+      const ok = answered === r.p;
+      const date = new Date(r.t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      verdict = `<div class="verdict">
+        <div><div class="msg ${ok ? "good" : "bad"}">${ok ? "Correct!" : `Nope, it was ${esc(short(r.p))}.`}</div>
+        <div class="meta">${esc(champ.name)} · ${date} · ${Math.round(r.dur / 60)} min · ${r.win ? "won" : "lost"}</div></div>
+        <button type="button" class="primary" id="next">Next round ↵</button></div>`;
+    }
+
+    main.innerHTML = `
+      <section class="card">
+        <div class="champ">${champHtml}</div>
+        <div class="items">${itemsHtml}</div>
+        <div class="hints">${hintBtns}</div>
+        <div class="hint-out">${hintOut}</div>
+      </section>
+      <section class="card">
+        <p class="guess-title">Whose build is this?</p>
+        <div class="guesses">${guessHtml}</div>
+        ${verdict}
+      </section>`;
+
+    main.querySelectorAll("[data-hint]").forEach((b) => b.onclick = () => { revealed[b.dataset.hint] = true; render(); });
+    main.querySelectorAll("[data-guess]").forEach((b) => b.onclick = () => guess(b.dataset.guess));
+    const next = $("#next");
+    if (next) { next.onclick = newRound; next.focus(); }
+  }
+
+  function guess(p) {
+    if (answered) return;
+    answered = p;
+    revealed.champ = true;
+    score.total++;
+    if (p === cur.p) { score.right++; score.streak++; } else score.streak = 0;
+    if (score.streak > score.best) { score.best = score.streak; store.set("best", score.best); }
+    renderScore();
+    render();
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+    if (answered && (e.key === "Enter" || e.key === " ")) {
+      if (e.target.tagName === "BUTTON") return;   // the focused button handles it
+      e.preventDefault(); newRound(); return;
+    }
+    const n = parseInt(e.key, 10);
+    if (!answered && n >= 1 && n <= 9) {
+      const choices = choiceList();
+      if (choices[n - 1]) guess(choices[n - 1]);
+    }
+  });
+
+  const gen = new Date(D.generated).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  $("#footer").textContent = `${D.rounds.length} builds from ${new Set(D.rounds.map((r) => r.g)).size} games · updated ${gen}`;
+
+  renderPlayers();
+  newRound();
+})();
+</script>
+</body>
+</html>

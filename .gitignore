@@ -1,0 +1,9 @@
+# Local only: secrets, raw game data (includes strangers in your lobbies), logs
+.env
+mayhem.db
+mayhem.db-journal
+collect.log
+cache/
+cache_lcu/
+__pycache__/
+collector.pid
