@@ -122,7 +122,12 @@
     </div>
     <div class="players" id="players"></div>
     <div class="row">
-      <label><input type="checkbox" id="hideChamp"> Hide champion (show its class instead)</label>
+      <label>At round start, show
+        <select id="champStart">
+          <option value="none">nothing</option>
+          <option value="class">champion class</option>
+          <option value="champ">champion</option>
+        </select></label>
       <label>Skip games from the last
         <select id="skipDays">
           <option value="0">0 days</option><option value="1">1 day</option>
@@ -160,8 +165,8 @@
   const players = D.players;
   let selected = new Set(store.get("players", players).filter((p) => players.includes(p)));
   if (selected.size === 0) selected = new Set(players);
-  const hideChamp = $("#hideChamp"), skipDays = $("#skipDays");
-  hideChamp.checked = store.get("hideChamp", false);
+  const champStart = $("#champStart"), skipDays = $("#skipDays");
+  champStart.value = store.get("champStart", "none");
   skipDays.value = String(store.get("skipDays", 0));
 
   const short = (rid) => rid.split("#")[0];
@@ -183,14 +188,14 @@
   }
   function saveAndRestart() {
     store.set("players", [...selected]);
-    store.set("hideChamp", hideChamp.checked);
+    store.set("champStart", champStart.value);
     store.set("skipDays", +skipDays.value);
     renderPlayers();
     newRound();
   }
   $("#all").onclick = () => { selected = new Set(players); saveAndRestart(); };
   $("#none").onclick = () => { selected = new Set(); saveAndRestart(); };
-  hideChamp.onchange = saveAndRestart;
+  champStart.onchange = saveAndRestart;
   skipDays.onchange = saveAndRestart;
 
   // ---------- data helpers ----------
@@ -250,7 +255,7 @@
       return;
     }
     seen.add(cur.g + "|" + cur.p);
-    revealed = { champ: !hideChamp.checked };
+    revealed = { champ: champStart.value === "champ", cls: champStart.value !== "none" };
     answered = false;
     render();
   }
@@ -263,7 +268,8 @@
       ? `<div class="portrait">${champ.icon ? `<img src="${esc(champ.icon)}" alt="" onerror="this.replaceWith('?')">` : "?"}</div>
          <div><div class="name">${esc(champ.name)}</div><div class="sub">${esc(roles)}</div></div>`
       : `<div class="portrait">?</div>
-         <div><div class="name">Hidden champion</div><div class="sub">${esc(roles)}</div></div>`;
+         <div><div class="name">Hidden champion</div>
+         <div class="sub">${revealed.cls ? esc(roles) : "Class hidden"}</div></div>`;
 
     const slots = [...r.items];
     while (slots.length < 6) slots.push(null);
@@ -275,7 +281,8 @@
     }).join("");
 
     const hintBtns = [
-      !revealed.champ && ["champ", "Show champion"],
+      !revealed.champ && !revealed.cls && ["cls", "Champion class"],
+      !revealed.champ && ["champ", "Champion"],
       ["aug", "Augments"],
       ["spells", "Summoner spells"],
       ["kda", "KDA & result"],
