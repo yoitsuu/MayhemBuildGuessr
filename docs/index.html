@@ -97,6 +97,20 @@
   .verdict .msg.bad { color: var(--bad); }
   .verdict .meta { color: var(--muted); font-size: 13px; }
 
+  /* hover / tap popup */
+  [data-tip] { cursor: help; }
+  #tip {
+    position: fixed; z-index: 50; max-width: 300px; pointer-events: none;
+    background: #0e1420; border: 1px solid var(--gold); border-radius: 10px;
+    padding: 10px 12px; box-shadow: 0 8px 24px #000a; font-size: 13px; line-height: 1.45;
+    opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s;
+  }
+  #tip.show { opacity: 1; transform: none; }
+  #tip .t-name { font-weight: 600; color: var(--gold); margin-bottom: 2px; }
+  #tip .t-sub { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  #tip .t-desc { white-space: pre-line; color: var(--text); }
+  #tip .t-none { color: var(--muted); font-style: italic; }
+
   .empty-state { text-align: center; color: var(--muted); padding: 40px 10px; }
   .empty-state code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px; color: var(--text); }
   footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 24px; }
@@ -142,6 +156,7 @@
   <footer id="footer"></footer>
 </div>
 
+<div id="tip" role="tooltip"></div>
 <script src="data.js"></script>
 <script>
 (() => {
@@ -261,6 +276,7 @@
   }
 
   function render() {
+    if (typeof hideTip === "function") hideTip();
     const r = cur;
     const champ = look("champions", r.c, "Champion");
     const roles = (champ.roles || []).map(cap).join(" · ") || "Unknown class";
@@ -276,7 +292,7 @@
     const itemsHtml = slots.map((id) => {
       if (!id) return `<div class="item empty"><div class="icon"></div></div>`;
       const it = look("items", id, "Item");
-      return `<div class="item" title="${esc(it.name)}"><div class="icon" data-name="${esc(it.name)}">${it.icon ? `<img src="${esc(it.icon)}" alt="" loading="lazy" onerror="this.replaceWith(this.parentNode.dataset.name)">` : esc(it.name)}</div>
+      return `<div class="item" data-tip="items:${id}"><div class="icon" data-name="${esc(it.name)}">${it.icon ? `<img src="${esc(it.icon)}" alt="" loading="lazy" onerror="this.replaceWith(this.parentNode.dataset.name)">` : esc(it.name)}</div>
               <div class="label">${esc(it.name)}</div></div>`;
     }).join("");
 
@@ -293,12 +309,12 @@
     let hintOut = "";
     if (revealed.aug) {
       const a = r.aug.map((id) => { const o = look("augments", id, "Augment");
-        return `<span class="r-${esc(o.rarity || "")}" title="${esc(o.name)}">${iconEl(o)}${esc(o.name)}</span>`; }).join("");
+        return `<span class="r-${esc(o.rarity || "")}" data-tip="augments:${id}">${iconEl(o)}${esc(o.name)}</span>`; }).join("");
       hintOut += `<div class="hint"><h4>Augments</h4><div class="mini">${a || "<span>None recorded</span>"}</div></div>`;
     }
     if (revealed.spells) {
       const s = r.spells.filter(Boolean).map((id) => { const o = look("spells", id, "Spell");
-        return `<span>${iconEl(o)}${esc(o.name)}</span>`; }).join("");
+        return `<span data-tip="spells:${id}">${iconEl(o)}${esc(o.name)}</span>`; }).join("");
       hintOut += `<div class="hint"><h4>Summoner spells</h4><div class="mini">${s}</div></div>`;
     }
     if (revealed.kda) {
@@ -379,8 +395,50 @@
     }
   });
 
+  // ---------- hover / tap popups ----------
+  const tip = $("#tip");
+  const RARITY = { kSilver: "Silver augment", kGold: "Gold augment", kPrismatic: "Prismatic augment" };
+  let tipFor = null;
+  function showTip(el) {
+    const [table, id] = el.dataset.tip.split(":");
+    const o = (D[table] || {})[id];
+    if (!o) return;
+    let sub = "";
+    if (table === "augments") sub = RARITY[o.rarity] || "Augment";
+    if (table === "items" && o.cost) sub = `${o.cost.toLocaleString()} gold`;
+    if (table === "spells") sub = "Summoner spell";
+    tip.innerHTML = `<div class="t-name">${esc(o.name)}</div>
+      ${sub ? `<div class="t-sub">${esc(sub)}</div>` : ""}
+      ${o.desc ? `<div class="t-desc">${esc(o.desc)}</div>` : `<div class="t-none">No description available.</div>`}`;
+    tip.classList.add("show");
+    tipFor = el;
+    // position: below the element, flipped above / clamped to stay on screen
+    const r = el.getBoundingClientRect(), t = tip.getBoundingClientRect(), pad = 8;
+    let x = Math.min(Math.max(pad, r.left + r.width / 2 - t.width / 2), innerWidth - t.width - pad);
+    let y = r.bottom + 8;
+    if (y + t.height > innerHeight - pad) y = Math.max(pad, r.top - t.height - 8);
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  }
+  function hideTip() { tip.classList.remove("show"); tipFor = null; }
+  const hoverable = matchMedia("(hover: hover)").matches;
+  if (hoverable) {
+    document.addEventListener("mouseover", (e) => {
+      const el = e.target.closest("[data-tip]");
+      if (el && el !== tipFor) showTip(el); else if (!el && tipFor) hideTip();
+    });
+  }
+  // Tap to toggle on touch screens (and click works on desktop too)
+  document.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-tip]");
+    if (!el) { if (!hoverable) hideTip(); return; }
+    if (!hoverable && el === tipFor) hideTip(); else showTip(el);
+  });
+  addEventListener("scroll", hideTip, { passive: true });
+
   const gen = new Date(D.generated).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-  $("#footer").textContent = `${D.rounds.length} builds from ${new Set(D.rounds.map((r) => r.g)).size} games · updated ${gen}`;
+  $("#footer").innerHTML = `${D.rounds.length} builds from ${new Set(D.rounds.map((r) => r.g)).size} games · updated ${esc(gen)}`
+    + (Object.values(D.augments || {}).some((a) => a.desc)
+      ? `<br>Augment descriptions from the <a href="https://wiki.leagueoflegends.com/en-us/ARAM_Mayhem/Augments" style="color:inherit">League of Legends Wiki</a> (CC BY-SA).` : "");
 
   renderPlayers();
   newRound();

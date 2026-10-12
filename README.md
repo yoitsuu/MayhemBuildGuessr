@@ -13,6 +13,7 @@ builds up the history over time.
 |---|---|
 | `players.txt` | Your friends' Riot IDs, one per line |
 | `collect.py` | Collector + exporter (Python 3.10+, no installs) |
+| `descriptions.py` | Item/spell/augment descriptions for the hover popups (used by the exporter) |
 | `start_collector.bat` / `stop_collector.bat` | Start/stop the background collector (Windows) |
 | `docs/index.html` | The game |
 | `docs/data.js` | The exported games (generated, gets published) |
@@ -62,5 +63,10 @@ friends' builds are exported; strangers from your lobbies stay local.
 
 - If a friend changes their Riot ID, just update `players.txt`. Games are
   matched by account (PUUID), so their older games carry over to the new name.
+- Hovering (or tapping) an item, augment or summoner spell shows its
+  description. Item and spell text comes from the client; augment text comes
+  from the [League of Legends Wiki](https://wiki.leagueoflegends.com/en-us/ARAM_Mayhem/Augments)
+  (downloaded at export time, cached for a day in `cache_static/`). Run
+  `python descriptions.py` to check how many augment descriptions it finds.
 - Items or augments without a name show as their numeric ID. Run
   `python collect.py --find-static` to see which data sources are reachable.

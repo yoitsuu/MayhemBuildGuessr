@@ -7,3 +7,4 @@ cache/
 cache_lcu/
 __pycache__/
 collector.pid
+cache_static/

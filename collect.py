@@ -39,11 +39,14 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from descriptions import attach_augment_descriptions, clean_client_markup
+
 HERE = Path(__file__).resolve().parent
 DB_PATH = HERE / "mayhem.db"
 PLAYERS_FILE = HERE / "players.txt"
 OUT_FILE = HERE / "docs" / "data.js"
 LOG_FILE = HERE / "collect.log"
+CACHE_STATIC = HERE / "cache_static"
 
 MAYHEM_QUEUE = 2400
 INTERVAL_MIN = float(os.environ.get("INTERVAL_MIN", "30"))
@@ -385,12 +388,18 @@ def export(lcu: LCU | None) -> Path:
     items = {}
     for it in fetch_static(lcu, "v1/items.json") or []:
         if it.get("id") in used_items:
-            items[it["id"]] = {"name": it.get("name"), "icon": asset_url(it.get("iconPath"))}
+            items[it["id"]] = {"name": it.get("name"), "icon": asset_url(it.get("iconPath")),
+                               "desc": clean_client_markup(it.get("description")),
+                               "cost": it.get("priceTotal")}
     spells = {}
     for s in fetch_static(lcu, "v1/summoner-spells.json") or []:
         if s.get("id") in used_spells:
-            spells[s["id"]] = {"name": s.get("name"), "icon": asset_url(s.get("iconPath"))}
+            spells[s["id"]] = {"name": s.get("name"), "icon": asset_url(s.get("iconPath")),
+                               "desc": clean_client_markup(s.get("description"))}
     augs = {k: v for k, v in load_augments(lcu, used_augs).items() if k in used_augs}
+    described = attach_augment_descriptions(augs, CACHE_STATIC, log)
+    if augs and described < len(augs):
+        log.info(f"  augment descriptions found for {described}/{len(augs)}")
 
     missing = {"items": len(used_items - items.keys()),
                "augments": len(used_augs - augs.keys()),
