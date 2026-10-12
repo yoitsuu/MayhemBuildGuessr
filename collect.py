@@ -429,6 +429,27 @@ def _git(*args, timeout=60):
                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
+def _pull_rebase() -> bool:
+    """git pull --rebase that survives Windows' "touched but unchanged" files.
+
+    If a file was rewritten with identical content, git's quick stat check calls
+    the tree dirty, --autostash then finds nothing to stash and git dies with
+    "Unexpected stash response". Refreshing the index first clears those false
+    positives, and autostash is only used when there really are local edits."""
+    _git("update-index", "-q", "--refresh")
+    dirty = (_git("diff", "--quiet").returncode != 0
+             or _git("diff", "--cached", "--quiet").returncode != 0)
+    pull = _git("pull", "--rebase", *(["--autostash"] if dirty else []))
+    if pull.returncode == 0:
+        return True
+    log.warning(f"git pull failed: {pull.stderr.strip()[:200]}")
+    changed = _git("status", "--porcelain", "-uno").stdout.strip()
+    if changed:
+        log.warning(f"  local changes in the way: {' '.join(changed.split())[:200]}")
+    _git("rebase", "--abort")
+    return False
+
+
 def git_pull() -> list[str]:
     """Pull changes made on GitHub (players.txt edits, code changes).
     Returns the files that changed, or [] if nothing did or the pull failed."""
@@ -436,10 +457,7 @@ def git_pull() -> list[str]:
         return []
     try:
         before = _git("rev-parse", "HEAD").stdout.strip()
-        pull = _git("pull", "--rebase", "--autostash")
-        if pull.returncode != 0:
-            log.warning(f"git pull failed: {pull.stderr.strip()[:200]}")
-            _git("rebase", "--abort")
+        if not _pull_rebase():
             return []
         after = _git("rev-parse", "HEAD").stdout.strip()
         if before == after:
@@ -470,10 +488,7 @@ def git_push():
         if git("diff", "--cached", "--quiet").returncode != 0:
             git("commit", "-m", "Update Mayhem games", "--", rel)
         # Pick up anything pushed from elsewhere since the start of this cycle.
-        pull = git("pull", "--rebase", "--autostash")
-        if pull.returncode != 0:
-            log.warning(f"git pull failed: {pull.stderr.strip()[:200]}")
-            git("rebase", "--abort")
+        if not _pull_rebase():
             return
         r = git("push")
         log.info("Pushed to GitHub." if r.returncode == 0
