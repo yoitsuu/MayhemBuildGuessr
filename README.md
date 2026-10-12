@@ -9,9 +9,12 @@ Party games built on your friends' ARAM Mayhem builds.
 - **Odd one out:** four builds, three by the same friend. Find the impostor.
 - **Did it win?** See the build, guess the result.
 
-**Daily** is the same 5 "Whose build?" rounds for everyone each day (resets at
-midnight Pacific), with a copyable emoji result for the group chat. It only
-uses games collected before the day started, so it can't change mid-day.
+**Daily** is the same 5 rounds for everyone each day (resets at midnight
+Pacific): three "Whose build?", one "Which champ?" (3 guesses) and one "Odd one
+out". It ignores the Play settings, saves your progress, and ends with a
+copyable emoji result for the group chat (🟨 = champion found on the 2nd or
+3rd guess). It uses games collected before the day started, falling back to
+games played before the day started, so the puzzle can't change mid-day.
 
 **Hall of Shame** ranks the weirdest builds. Weirdness (0-100) compares a
 build with how *other players in your lobbies* built the same champion (falling

@@ -360,12 +360,86 @@
   };
 
   // ======================================================================
-  // Play mode 2: Which champ?
+  // Shared: champion picker (used by "Which champ?" and the Daily)
+  //   st = { r, wrong: [], q: "", cls: "", answered: null | "win" | "lose" }
   // ======================================================================
   const CLASSES = ["fighter", "tank", "mage", "assassin", "marksman", "support"];
   const allChamps = () => Object.entries(D.champions || {})
     .map(([id, c]) => ({ id: +id, ...c })).filter((c) => c.id > 0 && c.name)
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  function pickerHtml(st, n, verdict) {
+    const done = !!st.answered, left = n - st.wrong.length;
+    const pips = "●".repeat(Math.max(0, left)) + "○".repeat(Math.min(n, st.wrong.length));
+    const wrongHtml = st.wrong.length ? `<div class="wrong-list">Wrong:
+      ${st.wrong.map((id) => { const c = look("champions", id, "Champion"); return `<span class="w">${iconEl(c)}${esc(c.name)}</span>`; }).join("")}</div>` : "";
+    const cards = allChamps().map((c) => {
+      let cls = "ch";
+      if (st.wrong.includes(c.id)) cls += " wrong";
+      if (done && c.id === st.r.c) cls += " correct";
+      return `<button type="button" class="${cls}" data-champ="${c.id}" data-k="${esc(norm(c.name) + " " + norm(c.alias))}"
+        data-roles="${esc((c.roles || []).join(" "))}" title="${esc(c.name)}" ${done || st.wrong.includes(c.id) ? "disabled" : ""}>
+        <span class="face">${c.icon ? `<img src="${esc(c.icon)}" alt="" loading="lazy" onerror="this.replaceWith('?')">` : "?"}</span>
+        <span class="nm">${esc(c.name)}</span></button>`;
+    }).join("");
+    return `<section class="card picker">
+      <div class="pick-head"><p class="guess-title">Which champion was this?</p>
+        <span class="tries">${done ? "" : `<span class="pips">${pips}</span>${left} of ${n} guess${n === 1 ? "" : "es"} left`}</span></div>
+      ${wrongHtml}${verdict}
+      ${done ? "" : `<input id="search" class="search" type="search" placeholder="Search champions…" autocomplete="off" value="${esc(st.q)}">
+      <div class="classes"><button type="button" data-cls="" class="${st.cls ? "" : "on"}">All</button>
+        ${CLASSES.map((k) => `<button type="button" data-cls="${k}" class="${st.cls === k ? "on" : ""}">${cap(k)}</button>`).join("")}</div>`}
+      <div class="grid" id="grid">${cards}<div class="none" hidden>No champions match.</div></div>
+    </section>`;
+  }
+  function filterPicker(st) {
+    const q = norm(st.q);
+    let shown = 0;
+    $$("#grid .ch").forEach((b) => {
+      const ok = (!q || b.dataset.k.split(" ").some((k) => k.includes(q)))
+        && (!st.cls || b.dataset.roles.split(" ").includes(st.cls));
+      b.hidden = !ok; if (ok) shown++;
+    });
+    const none = $("#grid .none"); if (none) none.hidden = shown > 0;
+  }
+  function wirePicker(st, onGuess) {
+    const s = $("#search");
+    if (s) {
+      s.oninput = () => { st.q = s.value; filterPicker(st); };
+      s.onkeydown = (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const b = $$("#grid .ch").find((x) => !x.hidden && !x.disabled);
+          if (b && (st.q || st.cls)) onGuess(+b.dataset.champ);
+        } else if (e.key === "Escape") { s.value = ""; st.q = ""; filterPicker(st); }
+      };
+    }
+    $$("#main [data-cls]").forEach((b) => b.onclick = () => {
+      st.cls = b.dataset.cls;
+      $$("#main [data-cls]").forEach((x) => x.classList.toggle("on", x === b));
+      filterPicker(st);
+    });
+    $$("#grid .ch").forEach((b) => b.onclick = () => onGuess(+b.dataset.champ));
+    if (!st.answered) filterPicker(st);
+  }
+  // Apply a guess; returns true once the round is over.
+  function champGuess(st, id, n) {
+    if (st.answered || st.wrong.includes(id)) return false;
+    if (id === st.r.c) st.answered = "win";
+    else { st.wrong.push(id); st.q = ""; if (st.wrong.length >= n) st.answered = "lose"; }
+    return !!st.answered;
+  }
+  // Start typing anywhere to search
+  function pickerType(st, e) {
+    if (e.key.length !== 1 || !/[a-z0-9' .&]/i.test(e.key)) return;
+    const s = $("#search");
+    if (s) { e.preventDefault(); s.focus(); s.value += e.key; st.q = s.value; filterPicker(st); }
+  }
+  function focusSearch() { if (hoverable) { const s = $("#search"); if (s) s.focus(); } }
+
+  // ======================================================================
+  // Play mode 2: Which champ?
+  // ======================================================================
   const C = { r: null, rev: {}, answered: null, wrong: [], q: "", cls: "" };
   const champMode = {
     start() {
@@ -375,22 +449,10 @@
       if (!C.r) { emptyCard("No games match these settings."); return; }
       Object.assign(C, { rev: {}, answered: null, wrong: [], q: "", cls: "" });
       this.render();
-      if (hoverable) { const s = $("#search"); if (s) s.focus(); }
+      focusSearch();
     },
     render() {
-      const r = C.r, done = !!C.answered, n = maxTries(), left = n - C.wrong.length;
-      const pips = "●".repeat(Math.max(0, left)) + "○".repeat(Math.min(n, C.wrong.length));
-      const wrongHtml = C.wrong.length ? `<div class="wrong-list">Wrong:
-        ${C.wrong.map((id) => { const c = look("champions", id, "Champion"); return `<span class="w">${iconEl(c)}${esc(c.name)}</span>`; }).join("")}</div>` : "";
-      const cards = allChamps().map((c) => {
-        let cls = "ch";
-        if (C.wrong.includes(c.id)) cls += " wrong";
-        if (done && c.id === r.c) cls += " correct";
-        return `<button type="button" class="${cls}" data-champ="${c.id}" data-k="${esc(norm(c.name) + " " + norm(c.alias))}"
-          data-roles="${esc((c.roles || []).join(" "))}" title="${esc(c.name)}" ${done || C.wrong.includes(c.id) ? "disabled" : ""}>
-          <span class="face">${c.icon ? `<img src="${esc(c.icon)}" alt="" loading="lazy" onerror="this.replaceWith('?')">` : "?"}</span>
-          <span class="nm">${esc(c.name)}</span></button>`;
-      }).join("");
+      const r = C.r, done = !!C.answered;
       let verdict = "";
       if (done) {
         const ok = C.answered === "win";
@@ -403,136 +465,105 @@
       main.innerHTML = buildCard(r, {
         champ: done, cls: C.rev.cls || done, rev: C.rev, byline: r.p, link: done, title: "Which champion?", weird: done,
         hints: [!C.rev.cls && "cls", "aug", "spells", "kda", "foes"].filter(Boolean),
-      }) + `<section class="card picker">
-        <div class="pick-head"><p class="guess-title">Which champion was this?</p>
-          <span class="tries">${done ? "" : `<span class="pips">${pips}</span>${left} of ${n} guess${n === 1 ? "" : "es"} left`}</span></div>
-        ${wrongHtml}${verdict}
-        ${done ? "" : `<input id="search" class="search" type="search" placeholder="Search champions…" autocomplete="off" value="${esc(C.q)}">
-        <div class="classes"><button type="button" data-cls="" class="${C.cls ? "" : "on"}">All</button>
-          ${CLASSES.map((k) => `<button type="button" data-cls="${k}" class="${C.cls === k ? "on" : ""}">${cap(k)}</button>`).join("")}</div>`}
-        <div class="grid" id="grid">${cards}<div class="none" hidden>No champions match.</div></div>
-      </section>`;
+      }) + pickerHtml(C, maxTries(), verdict);
       wireHints(C.rev);
-      this.wire();
+      wirePicker(C, (id) => this.guess(id));
       wireNext(() => this.start());
     },
-    filter() {
-      const q = norm(C.q);
-      let shown = 0;
-      $$("#grid .ch").forEach((b) => {
-        const ok = (!q || b.dataset.k.split(" ").some((k) => k.includes(q)))
-          && (!C.cls || b.dataset.roles.split(" ").includes(C.cls));
-        b.hidden = !ok; if (ok) shown++;
-      });
-      const none = $("#grid .none"); if (none) none.hidden = shown > 0;
-    },
-    wire() {
-      const s = $("#search");
-      if (s) {
-        s.oninput = () => { C.q = s.value; this.filter(); };
-        s.onkeydown = (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            const b = $$("#grid .ch").find((x) => !x.hidden && !x.disabled);
-            if (b && (C.q || C.cls)) this.guess(+b.dataset.champ);
-          } else if (e.key === "Escape") { s.value = ""; C.q = ""; this.filter(); }
-        };
-      }
-      $$("#main [data-cls]").forEach((b) => b.onclick = () => {
-        C.cls = b.dataset.cls;
-        $$("#main [data-cls]").forEach((x) => x.classList.toggle("on", x === b));
-        this.filter();
-      });
-      $$("#grid .ch").forEach((b) => b.onclick = () => this.guess(+b.dataset.champ));
-      if (!C.answered) this.filter();
-    },
     guess(id) {
-      if (C.answered || C.wrong.includes(id)) return;
-      if (id === C.r.c) { C.answered = "win"; record(true); }
-      else {
-        C.wrong.push(id); C.q = "";
-        if (C.wrong.length >= maxTries()) { C.answered = "lose"; record(false); }
-      }
+      if (champGuess(C, id, maxTries())) record(C.answered === "win");
       this.render();
-      const s = $("#search"); if (s && hoverable) s.focus();
+      focusSearch();
     },
     key(e) {
       if (C.answered) { if (e.key === "Enter") this.start(); return; }
-      if (e.key.length === 1 && /[a-z0-9' .&]/i.test(e.key)) {
-        const s = $("#search");
-        if (s) { e.preventDefault(); s.focus(); s.value += e.key; C.q = s.value; this.filter(); }
-      }
+      pickerType(C, e);
     },
   };
 
   // ======================================================================
-  // Play mode 3: Odd one out -- 4 builds, 3 by one friend, 1 by another
+  // Shared: Odd one out round (4 builds: 3 by one friend, 1 by another)
   // ======================================================================
-  const O = { cards: [], odd: -1, a: null, b: null, picked: -1, rev: {} };
+  // Returns { cards, odd, a, b } or null. rnd lets the Daily seed it.
+  function makeOdd(pool, rnd = Math.random) {
+    const bp = byPlayer(pool);
+    const all = Object.keys(bp).sort();
+    const mains = all.filter((p) => bp[p].length >= 3);
+    if (!mains.length || all.length < 2) return null;
+    const a = pick(mains, rnd), b = pick(all.filter((p) => p !== a), rnd);
+    const mine = shuffle(bp[a], rnd), three = [];
+    for (const r of mine) if (three.length < 3 && !three.some((x) => x.c === r.c)) three.push(r);   // prefer 3 different champions
+    for (const r of mine) if (three.length < 3 && !three.includes(r)) three.push(r);
+    const odd = pick(bp[b], rnd);
+    const cards = shuffle([...three, odd], rnd);
+    return { cards, odd: cards.indexOf(odd), a, b };
+  }
+  function oddHtml(o, picked, rev, verdict) {
+    const done = picked >= 0;
+    const cards = o.cards.map((r, i) => {
+      const c = look("champions", r.c, "Champion");
+      let cls = "oc";
+      if (done && i === o.odd) cls += i === picked ? " correct" : " odd-reveal";
+      if (done && i === picked && i !== o.odd) cls += " wrong";
+      const items = r.items.map((id) => { const it = look("items", id, "Item");
+        return `<div class="icon" data-tip="items:${id}">${it.icon ? `<img src="${esc(it.icon)}" alt="${esc(it.name)}" loading="lazy">` : esc(it.name)}</div>`; }).join("");
+      const augs = rev.aug ? `<div class="oc-aug">${r.aug.map((id) => { const a = look("augments", id, "Augment");
+        return `<span data-tip="augments:${id}">${a.icon ? `<img src="${esc(a.icon)}" alt="">` : ""}</span>`; }).join("")}</div>` : "";
+      const w = wOf(r);
+      const who = done ? `<div class="who"><span>${i === o.odd ? "Odd one: " : ""}<b>${plink(r.p)}</b></span>
+        ${w ? `<span>Weirdness ${w.score}</span>` : ""}</div>` : "";
+      // Not "disabled" once answered: disabled buttons swallow clicks on the
+      // player names inside them. Repeat picks are ignored instead.
+      return `<button type="button" class="${cls}${done ? " done" : ""}" data-card="${i}">
+        <div class="oc-head">${portrait(c)}<div><div class="oc-name">${esc(c.name)}</div>
+          <div class="oc-sub">${esc(rolesOf(r.c))}</div></div><span class="k">${done ? "" : i + 1}</span></div>
+        <div class="oc-items">${items}</div>${augs}${who}</button>`;
+    }).join("");
+    return `<section class="card">
+      <p class="guess-title">Three of these builds are by the same friend. Which one isn't?</p>
+      <div class="hints"><button type="button" data-hint="aug" ${rev.aug || done ? "disabled" : ""}>Show augments</button></div>
+      <div class="odd-grid" style="margin-top:12px">${cards}</div>${verdict}</section>`;
+  }
+  function oddVerdict(o, picked, next) {
+    const ok = picked === o.odd;
+    return `<div class="verdict"><div>
+      <div class="msg ${ok ? "good" : "bad"}">${ok ? "Correct!" : "Nope!"}</div>
+      <div class="meta">Three were ${plink(o.a)}'s; the odd one was ${plink(o.b)}'s.</div>
+      </div>${next}</div>`;
+  }
+  function wireOdd(onPick) {
+    $$("#main [data-card]").forEach((b) => b.onclick = (e) => {
+      if (e.target.closest("[data-tip]") && !hoverable) return;   // tapping an item shows its info
+      onPick(+b.dataset.card);
+    });
+  }
+
+  // ======================================================================
+  // Play mode 3: Odd one out
+  // ======================================================================
+  const O = { o: null, picked: -1, rev: {} };
   const oddMode = {
     start() {
       renderScore();
-      const bp = byPlayer(eligible());
-      const mains = Object.keys(bp).filter((p) => bp[p].length >= 3);
-      const all = Object.keys(bp);
-      if (!mains.length || all.length < 2) {
+      O.o = makeOdd(eligible());
+      if (!O.o) {
         emptyCard(`Odd one out needs one player with at least 3 builds and another player with at least 1.<br>Include more players in <b>Players &amp; options</b>.`);
         return;
       }
-      const a = pick(mains), b = pick(all.filter((p) => p !== a));
-      // Prefer three different champions for the main player
-      const pool = shuffle(bp[a]), three = [];
-      for (const r of pool) if (three.length < 3 && !three.some((x) => x.c === r.c)) three.push(r);
-      for (const r of pool) if (three.length < 3 && !three.includes(r)) three.push(r);
-      const odd = pick(bp[b]);
-      const cards = shuffle([...three, odd]);
-      Object.assign(O, { cards, odd: cards.indexOf(odd), a, b, picked: -1, rev: {} });
+      O.picked = -1; O.rev = {};
       this.render();
     },
     render() {
       const done = O.picked >= 0;
-      const cards = O.cards.map((r, i) => {
-        const c = look("champions", r.c, "Champion");
-        let cls = "oc";
-        if (done && i === O.odd) cls += i === O.picked ? " correct" : " odd-reveal";
-        if (done && i === O.picked && i !== O.odd) cls += " wrong";
-        const items = r.items.map((id) => { const it = look("items", id, "Item");
-          return `<div class="icon" data-tip="items:${id}" title="">${it.icon ? `<img src="${esc(it.icon)}" alt="${esc(it.name)}" loading="lazy">` : esc(it.name)}</div>`; }).join("");
-        const augs = O.rev.aug ? `<div class="oc-aug">${r.aug.map((id) => { const o = look("augments", id, "Augment");
-          return `<span data-tip="augments:${id}">${o.icon ? `<img src="${esc(o.icon)}" alt="">` : ""}</span>`; }).join("")}</div>` : "";
-        const w = wOf(r);
-        const who = done ? `<div class="who"><span>${i === O.odd ? "Odd one: " : ""}<b>${plink(r.p)}</b></span>
-          ${w ? `<span>Weirdness ${w.score}</span>` : ""}</div>` : "";
-        // Not "disabled" once answered: disabled buttons swallow clicks on the
-        // player names inside them. guess() ignores repeat picks instead.
-        return `<button type="button" class="${cls}${done ? " done" : ""}" data-card="${i}">
-          <div class="oc-head">${portrait(c)}<div><div class="oc-name">${esc(c.name)}</div>
-            <div class="oc-sub">${esc(rolesOf(r.c))}</div></div><span class="k">${done ? "" : i + 1}</span></div>
-          <div class="oc-items">${items}</div>${augs}${who}</button>`;
-      }).join("");
-      let verdict = "";
-      if (done) {
-        const ok = O.picked === O.odd;
-        verdict = `<div class="verdict"><div>
-          <div class="msg ${ok ? "good" : "bad"}">${ok ? "Correct!" : "Nope!"}</div>
-          <div class="meta">Three were ${plink(O.a)}'s; the odd one was ${plink(O.b)}'s.</div>
-          </div>${nextBtn()}</div>`;
-      }
-      main.innerHTML = `<section class="card">
-        <p class="guess-title">Three of these builds are by the same friend. Which one isn't?</p>
-        <div class="hints"><button type="button" data-hint="aug" ${O.rev.aug ? "disabled" : ""}>Show augments</button></div>
-        <div class="odd-grid" style="margin-top:12px">${cards}</div>${verdict}</section>`;
+      main.innerHTML = oddHtml(O.o, O.picked, O.rev, done ? oddVerdict(O.o, O.picked, nextBtn()) : "");
       wireHints(O.rev);
-      $$("#main [data-card]").forEach((b) => b.onclick = (e) => {
-        if (e.target.closest("[data-tip]") && !hoverable) return;   // tapping an item shows its info
-        this.guess(+b.dataset.card);
-      });
+      wireOdd((i) => this.guess(i));
       wireNext(() => this.start());
     },
     guess(i) {
       if (O.picked >= 0) return;
       O.picked = i;
-      record(i === O.odd);
+      record(i === O.o.odd);
       this.render();
     },
     key(e) {
@@ -593,7 +624,7 @@
   const MODES = { player: playerMode, champ: champMode, odd: oddMode, win: winMode };
 
   // ======================================================================
-  // Daily: the same 5 "Whose build?" rounds for everyone, per Pacific day
+  // Daily: the same 5 mixed rounds for everyone, per Pacific day
   // ======================================================================
   const TZ = "America/Los_Angeles";
   const ptDate = (ms) => new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
@@ -618,107 +649,202 @@
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
-  const DAILY_ROUNDS = 5;
+  // Fixed shape: 3x "Whose build?", then "Which champ?", then "Odd one out".
+  const DAILY_PLAN = ["player", "player", "player", "champ", "odd"];
+  const DAILY_ROUNDS = DAILY_PLAN.length;
+  const DAILY_TRIES = 3;                           // guesses for the champion round
+  const TYPE_LABEL = { player: "Whose build?", champ: "Which champ?", odd: "Odd one out" };
+  const byKey = (x, y) => (x.g - y.g) || (x.p < y.p ? -1 : x.p > y.p ? 1 : 0);
+
+  function dailyPool(day) {
+    // Games collected before today started, so a push mid-day can't change
+    // anyone's puzzle. If there aren't enough yet (e.g. a new setup), fall
+    // back to games *played* before today. Either pool is fixed all day.
+    const enough = (pool) => pool.length >= 8 && new Set(pool.map((r) => r.p)).size >= 2;
+    const strict = D.rounds.filter((r) => r.f && ptDate(r.f) < day);
+    if (enough(strict)) return strict.sort(byKey);
+    return D.rounds.filter((r) => ptDate(r.t) < day).sort(byKey);
+  }
+
   function buildDaily(day) {
-    // Only games collected before today started, so a push mid-day doesn't
-    // change anyone's puzzle. Sorted so every browser sees the same order.
-    const pool = D.rounds.filter((r) => ptDate(r.f || r.t) < day)
-      .sort((x, y) => (x.g - y.g) || (x.p < y.p ? -1 : x.p > y.p ? 1 : 0));
+    const pool = dailyPool(day);
     const bp = byPlayer(pool);
     const choices = players.filter((p) => bp[p]);
+    if (choices.length < 2) return { rounds: [], choices };
     const rnd = seededRandom("whosebuild:" + day);
-    const rounds = [], used = new Set();
-    for (let i = 0; i < DAILY_ROUNDS * 20 && rounds.length < DAILY_ROUNDS; i++) {
-      const p = pick(choices, rnd);
-      const opts = bp[p].filter((r) => !used.has(keyOf(r)));
-      if (!opts.length) continue;
-      const r = pick(opts, rnd);
-      used.add(keyOf(r)); rounds.push(r);
+    const used = new Set(), rounds = [];
+    const takeOne = () => {                        // random player, then one of their unused builds
+      for (let i = 0; i < 50; i++) {
+        const opts = bp[pick(choices, rnd)].filter((r) => !used.has(keyOf(r)));
+        if (opts.length) { const r = pick(opts, rnd); used.add(keyOf(r)); return r; }
+      }
+      return null;
+    };
+    for (const type of DAILY_PLAN) {
+      if (type === "odd") {
+        const o = makeOdd(pool.filter((r) => !used.has(keyOf(r))), rnd);
+        if (o) { o.cards.forEach((r) => used.add(keyOf(r))); rounds.push({ type, o }); continue; }
+      }
+      const r = takeOne();                         // ("odd" falls back to a normal round if impossible)
+      if (r) rounds.push({ type: type === "odd" ? "player" : type, r });
     }
     return { rounds, choices };
   }
 
-  const Dy = { day: null, set: null, st: null, rev: {} };
+  // Dy.st is saved per day: { i: current round, res: [...results], part: { wrong: [] } }
+  const Dy = { day: null, set: null, st: null, rev: {}, cst: null };
+  const markOf = (res) => res.mark || (res.ok ? "🟩" : "🟥");
   const daily = {
     start() {
       Dy.day = ptDate(Date.now());
       Dy.set = buildDaily(Dy.day);
-      Dy.st = store.get("daily." + Dy.day, { i: 0, res: [] });
+      Dy.st = store.get("daily2." + Dy.day, null);
+      if (!Dy.st || !Array.isArray(Dy.st.res)) Dy.st = { i: 0, res: [], part: { wrong: [] } };
+      Dy.st.part ||= { wrong: [] };
       Dy.rev = {};
-      $("#score").innerHTML = `<b>Daily #${dayNumber(Dy.day)}</b><br>${Dy.st.res.filter((x) => x.ok).length}/${DAILY_ROUNDS}`;
-      if (Dy.set.rounds.length < DAILY_ROUNDS || Dy.set.choices.length < 2) {
+      this.header();
+      if (Dy.set.rounds.length < DAILY_ROUNDS) {
         emptyCard("Not enough games collected yet for a daily challenge. Check back tomorrow!");
         return;
       }
       this.render();
     },
-    save() { store.set("daily." + Dy.day, Dy.st); },
-    render() {
-      const st = Dy.st;
-      $("#score").innerHTML = `<b>Daily #${dayNumber(Dy.day)}</b><br>${st.res.filter((x) => x.ok).length}/${DAILY_ROUNDS}`;
-      if (st.res.length >= DAILY_ROUNDS && st.i >= DAILY_ROUNDS) return this.summary();
-      const idx = Math.min(st.i, DAILY_ROUNDS - 1), r = Dy.set.rounds[idx];
-      const answered = st.res[idx];
-      const pips = Dy.set.rounds.map((_, i) => i < st.res.length ? (st.res[i].ok ? "🟩" : "🟥") : i === idx ? "⬜" : "▫️").join("");
-      const guesses = Dy.set.choices.map((p, i) => {
-        const cls = !answered ? "" : p === r.p ? "correct" : p === answered.guess ? "wrong" : "";
-        return `<button type="button" data-guess="${esc(p)}" class="${cls}" ${answered ? "disabled" : ""}>
-          <span class="k">${i < 9 ? i + 1 : ""}</span>${esc(short(p))}</button>`;
-      }).join("");
-      let verdict = "";
-      if (answered) {
-        verdict = `<div class="verdict"><div>
-          <div class="msg ${answered.ok ? "good" : "bad"}">${answered.ok ? `Correct! It was ${plink(r.p)}.` : `Nope, it was ${plink(r.p)}.`}</div>
-          <div class="meta">${esc(look("champions", r.c, "Champion").name)} · ${fmtDate(r.t)} · ${mins(r)} min</div>
-          </div>${nextBtn(idx === DAILY_ROUNDS - 1 ? "See results" : "Next round")}</div>`;
-      }
-      const rev = answered ? { ...Dy.rev, champ: true } : Dy.rev;
-      main.innerHTML = `<div class="daily-head"><h2>Daily #${dayNumber(Dy.day)}</h2>
-          <span class="prog">Round ${idx + 1} of ${DAILY_ROUNDS}<span class="pips">${pips}</span></span></div>`
-        + buildCard(r, {
-          champ: !!rev.champ, cls: !!rev.cls, rev, weird: !!answered,
-          hints: answered ? [] : [!rev.cls && "cls", "champ", "aug", "spells", "kda", "foes"].filter(Boolean),
-        }) + `<section class="card"><p class="guess-title">Whose build is this?</p>
-          <div class="guesses">${guesses}</div>${verdict}</section>`;
-      wireHints(Dy.rev);
-      $$("#main [data-guess]").forEach((b) => b.onclick = () => this.guess(b.dataset.guess));
-      wireNext(() => { st.i = idx + 1; Dy.rev = {}; this.save(); this.render(); window.scrollTo({ top: 0 }); });
+    header() {
+      $("#score").innerHTML = `<b>Daily #${dayNumber(Dy.day)}</b><br>${Dy.st.res.filter((x) => x && x.ok).length}/${DAILY_ROUNDS}`;
     },
-    guess(p) {
-      const st = Dy.st, idx = st.i, r = Dy.set.rounds[idx];
-      if (st.res[idx]) return;
-      st.res[idx] = { guess: p, ok: p === r.p, hints: Object.keys(Dy.rev).filter((k) => Dy.rev[k]).length };
+    save() { store.set("daily2." + Dy.day, Dy.st); this.header(); },
+    hintCount() { return Object.keys(Dy.rev).filter((k) => Dy.rev[k]).length; },
+    finish(res) {
+      const st = Dy.st;
+      st.res[st.i] = { ...res, hints: this.hintCount() };
+      st.part = { wrong: [] };
       this.save();
       this.render();
+    },
+    next() {
+      Dy.st.i++; Dy.rev = {}; this.save(); this.render();
+      window.scrollTo({ top: 0 });
+      if (Dy.set.rounds[Dy.st.i] && Dy.set.rounds[Dy.st.i].type === "champ") focusSearch();
+    },
+    render() {
+      const st = Dy.st;
+      if (st.i >= DAILY_ROUNDS) return this.summary();
+      const idx = st.i, rd = Dy.set.rounds[idx], res = st.res[idx];
+      const pips = Dy.set.rounds.map((_, i) => st.res[i] ? markOf(st.res[i]) : i === idx ? "⬜" : "▫️").join("");
+      const next = nextBtn(idx === DAILY_ROUNDS - 1 ? "See results" : "Next round");
+      const head = `<div class="daily-head"><h2>Daily #${dayNumber(Dy.day)}</h2>
+        <span class="prog">Round ${idx + 1} of ${DAILY_ROUNDS} · ${TYPE_LABEL[rd.type]}<span class="pips">${pips}</span></span></div>`;
+      let body = "";
+
+      if (rd.type === "player") {
+        const r = rd.r;
+        const guesses = Dy.set.choices.map((p, i) => {
+          const cls = !res ? "" : p === r.p ? "correct" : p === res.guess ? "wrong" : "";
+          return `<button type="button" data-guess="${esc(p)}" class="${cls}" ${res ? "disabled" : ""}>
+            <span class="k">${i < 9 ? i + 1 : ""}</span>${esc(short(p))}</button>`;
+        }).join("");
+        const verdict = res ? `<div class="verdict"><div>
+          <div class="msg ${res.ok ? "good" : "bad"}">${res.ok ? `Correct! It was ${plink(r.p)}.` : `Nope, it was ${plink(r.p)}.`}</div>
+          <div class="meta">${esc(look("champions", r.c, "Champion").name)} · ${fmtDate(r.t)} · ${mins(r)} min</div>
+          </div>${next}</div>` : "";
+        const rev = res ? { ...Dy.rev, champ: true } : Dy.rev;
+        body = buildCard(r, {
+          champ: !!rev.champ, cls: !!rev.cls, rev, weird: !!res, byline: res ? r.p : null, link: true,
+          hints: res ? [] : [!rev.cls && "cls", "champ", "aug", "spells", "kda", "foes"].filter(Boolean),
+        }) + `<section class="card"><p class="guess-title">Whose build is this?</p>
+          <div class="guesses">${guesses}</div>${verdict}</section>`;
+      }
+
+      if (rd.type === "champ") {
+        const r = rd.r;
+        Dy.cst = { r, wrong: res ? res.wrong : st.part.wrong, q: Dy.cst && Dy.cst.r === r ? Dy.cst.q : "",
+                   cls: Dy.cst && Dy.cst.r === r ? Dy.cst.cls : "", answered: res ? (res.ok ? "win" : "lose") : null };
+        const verdict = res ? `<div class="verdict"><div>
+          <div class="msg ${res.ok ? "good" : "bad"}">${res.ok ? `Correct! ${res.wrong.length ? `(${res.wrong.length + 1} guesses)` : "First try!"}`
+            : `Out of guesses. It was ${esc(look("champions", r.c, "Champion").name)}.`}</div>
+          <div class="meta">${esc(short(r.p))} · ${fmtDate(r.t)} · ${mins(r)} min</div></div>${next}</div>` : "";
+        body = buildCard(r, {
+          champ: !!res, cls: Dy.rev.cls || !!res, rev: Dy.rev, byline: r.p, link: !!res, title: "Which champion?", weird: !!res,
+          hints: res ? [] : [!Dy.rev.cls && "cls", "aug", "spells", "kda", "foes"].filter(Boolean),
+        }) + pickerHtml(Dy.cst, DAILY_TRIES, verdict);
+      }
+
+      if (rd.type === "odd") {
+        const picked = res ? res.picked : -1;
+        body = oddHtml(rd.o, picked, Dy.rev, res ? oddVerdict(rd.o, picked, next) : "");
+      }
+
+      main.innerHTML = head + body;
+      wireHints(Dy.rev);
+      if (rd.type === "player") $$("#main [data-guess]").forEach((b) => b.onclick = () => this.guessPlayer(b.dataset.guess));
+      if (rd.type === "champ") wirePicker(Dy.cst, (id) => this.guessChamp(id));
+      if (rd.type === "odd") wireOdd((i) => this.guessOdd(i));
+      wireNext(() => this.next());
+    },
+    current() { return Dy.set.rounds[Dy.st.i]; },
+    guessPlayer(p) {
+      if (Dy.st.res[Dy.st.i]) return;
+      const r = this.current().r;
+      this.finish({ type: "player", guess: p, ok: p === r.p });
+    },
+    guessChamp(id) {
+      if (Dy.st.res[Dy.st.i]) return;
+      const st = Dy.cst;
+      if (champGuess(st, id, DAILY_TRIES)) {
+        const ok = st.answered === "win";
+        this.finish({ type: "champ", ok, wrong: [...st.wrong], mark: !ok ? "🟥" : st.wrong.length ? "🟨" : "🟩" });
+      } else {
+        Dy.st.part.wrong = st.wrong;                 // remember wrong guesses across reloads
+        this.save(); this.render();
+      }
+      focusSearch();
+    },
+    guessOdd(i) {
+      if (Dy.st.res[Dy.st.i]) return;
+      this.finish({ type: "odd", picked: i, ok: i === this.current().o.odd });
     },
     shareText() {
       const st = Dy.st, right = st.res.filter((x) => x.ok).length;
       const hints = st.res.reduce((t, x) => t + (x.hints || 0), 0);
       const url = location.protocol.startsWith("http") ? "\n" + location.href.split(/[?#]/)[0] : "";
       return `Whose Build? Daily #${dayNumber(Dy.day)} · ${right}/${DAILY_ROUNDS}\n`
-        + st.res.map((x) => x.ok ? "🟩" : "🟥").join("")
+        + st.res.map(markOf).join("")
         + `\n💡 ${hints} hint${hints === 1 ? "" : "s"}` + url;
     },
     summary() {
       const st = Dy.st, right = st.res.filter((x) => x.ok).length, text = this.shareText();
       applyNav();                                    // clears the "not played" dot
-      const recap = Dy.set.rounds.map((r, i) => {
-        const c = look("champions", r.c, "Champion"), res = st.res[i];
-        return `<div class="rc">${portrait(c)}<div><b>${plink(r.p)}</b> · ${esc(c.name)}
-          <div style="color:var(--muted);font-size:12px">${res.ok ? "You got it" : `You said ${esc(short(res.guess))}`}${res.hints ? ` · ${res.hints} hint${res.hints === 1 ? "" : "s"}` : ""}</div></div>
-          <span class="mark">${res.ok ? "🟩" : "🟥"}</span></div>`;
+      const recap = Dy.set.rounds.map((rd, i) => {
+        const res = st.res[i] || {}, hints = res.hints ? ` · ${res.hints} hint${res.hints === 1 ? "" : "s"}` : "";
+        let face, line, sub;
+        if (rd.type === "odd") {
+          const odd = rd.o.cards[rd.o.odd];
+          face = portrait(look("champions", odd.c, "Champion"));
+          line = `Odd one out: ${plink(rd.o.b)} among ${plink(rd.o.a)}'s builds`;
+          sub = res.ok ? "You spotted it" : "You missed it";
+        } else {
+          const r = rd.r, c = look("champions", r.c, "Champion");
+          face = portrait(c);
+          line = `<b>${plink(r.p)}</b> · ${esc(c.name)}`;
+          sub = rd.type === "champ"
+            ? (res.ok ? (res.wrong && res.wrong.length ? `Champion found in ${res.wrong.length + 1} guesses` : "Champion on the first try") : "Champion missed")
+            : (res.ok ? "You got it" : `You said ${esc(short(res.guess || "?"))}`);
+        }
+        return `<div class="rc">${face}<div>${line}
+          <div style="color:var(--muted);font-size:12px">${TYPE_LABEL[rd.type]} · ${sub}${hints}</div></div>
+          <span class="mark">${markOf(res)}</span></div>`;
       }).join("");
-      const h = Math.floor(msUntilNextDay() / 3600000), m = Math.floor(msUntilNextDay() % 3600000 / 60000);
+      const ms = msUntilNextDay(), h = Math.floor(ms / 3600000), m = Math.floor(ms % 3600000 / 60000);
       main.innerHTML = `<section class="card summary">
         <div style="color:var(--muted)">Daily #${dayNumber(Dy.day)}</div>
         <div class="big">${right}/${DAILY_ROUNDS}</div>
-        <div class="emoji">${st.res.map((x) => x.ok ? "🟩" : "🟥").join("")}</div>
+        <div class="emoji">${st.res.map(markOf).join("")}</div>
         <div class="share-row">
           <button type="button" class="primary" id="copy">Copy result</button>
           ${navigator.share ? `<button type="button" id="share">Share…</button>` : ""}
         </div>
         <pre id="sharetext">${esc(text)}</pre>
-        <div class="next-in">Next daily in ${h}h ${m}m</div>
+        <div class="next-in">Next daily in ${h}h ${m}m · 🟨 = champion found on the 2nd or 3rd guess</div>
         <div class="recap">${recap}</div>
       </section>`;
       $("#copy").onclick = async () => {
@@ -734,12 +860,15 @@
     },
     key(e) {
       const st = Dy.st;
-      if (!st || st.i >= DAILY_ROUNDS) return;
-      const idx = st.i, n = parseInt(e.key, 10);
-      if (!st.res[idx] && n >= 1 && n <= 9) { const c = Dy.set.choices[n - 1]; if (c) this.guess(c); }
-      else if (st.res[idx] && e.key === "Enter") $("#next") && $("#next").click();
+      if (!st || st.i >= DAILY_ROUNDS || !Dy.set || !Dy.set.rounds[st.i]) return;
+      const rd = Dy.set.rounds[st.i], res = st.res[st.i];
+      if (res) { if (e.key === "Enter") this.next(); return; }
+      const n = parseInt(e.key, 10);
+      if (rd.type === "player" && n >= 1 && n <= 9) { const c = Dy.set.choices[n - 1]; if (c) this.guessPlayer(c); }
+      else if (rd.type === "odd" && n >= 1 && n <= 4) this.guessOdd(n - 1);
+      else if (rd.type === "champ") pickerType(Dy.cst, e);
     },
-    played() { const s = store.get("daily." + ptDate(Date.now()), null); return s && s.i >= DAILY_ROUNDS; },
+    played() { const s = store.get("daily2." + ptDate(Date.now()), null); return !!(s && s.i >= DAILY_ROUNDS); },
   };
 
   // ======================================================================
