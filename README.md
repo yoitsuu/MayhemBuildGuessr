@@ -48,41 +48,10 @@ Adding a player (`--add`, or just editing `players.txt`) takes effect on the
 next cycle; no restart needed. Only their last ~20 games are available at
 that point, same as everyone else on day one.
 
-## Publishing on GitHub Pages
-
-One-time setup, in Git Bash inside this folder:
-
-1. Create an **empty public** repo on github.com (no README), e.g. `whose-build`.
-2. Run:
-   ```
-   git init -b main
-   git add .
-   git commit -m "Initial commit"
-   git remote add origin https://github.com/<you>/whose-build.git
-   git push -u origin main
-   ```
-   The first push opens a browser window to sign in to GitHub (Git Credential
-   Manager, which comes with Git for Windows). After that, pushes work
-   silently, including from the background collector.
-3. On GitHub: repo Settings -> Pages -> Source "Deploy from a branch", branch
-   `main`, folder `/docs`, Save. The site appears at
-   `https://<you>.github.io/whose-build/` within a minute or two.
-4. Edit `start_collector.bat` and change `set PUSH=` to `set PUSH=--push`, then
-   run `stop_collector.bat` and `start_collector.bat`. From then on, whenever
-   new games come in, the collector commits `docs/data.js` and pushes it, and
-   Pages republishes automatically.
 
 `.gitignore` keeps the database, logs and `.env` out of the repo. Only your
 friends' builds are exported; strangers from your lobbies stay local.
 
-### How the local database and the repo relate
-
-They don't need to stay in sync. `mayhem.db` is the source of truth and lives
-only on this PC; the repo just receives the exported `docs/data.js` snapshot.
-If you change code and push from another machine, the collector pulls before
-pushing, so that won't conflict. The only thing to protect is `mayhem.db`
-itself: copy it somewhere (OneDrive, a USB stick) now and then, since that
-history can't be re-downloaded.
 
 ## Notes
 
