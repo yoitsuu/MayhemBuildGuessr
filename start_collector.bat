@@ -3,7 +3,7 @@ rem Starts the Mayhem collector in the background (no console window).
 rem This window closes after a few seconds; the collector keeps running.
 rem To run it at login: Win+R -> shell:startup -> put a shortcut to this file there.
 rem Set PUSH=--push below to also publish to GitHub Pages after each update.
-set PUSH=
+set PUSH=--push
 cd /d "%~dp0"
 
 where pythonw >nul 2>nul
