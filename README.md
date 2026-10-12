@@ -13,9 +13,17 @@ Party games built on your friends' ARAM Mayhem builds.
 midnight Pacific), with a copyable emoji result for the group chat. It only
 uses games collected before the day started, so it can't change mid-day.
 
-**Hall of Shame** ranks the weirdest builds. Weirdness (0-100) measures how
-rarely the group puts those items on that class of champion; it's also shown
-after each answer.
+**Hall of Shame** ranks the weirdest builds. Weirdness (0-100) compares a
+build with how *other players in your lobbies* built the same champion (falling
+back on the champion's class when there are few examples), as a percentile:
+90 means weirder than 90% of lobby builds. Components and consumables are
+ignored. The strangers' builds never leave your PC; only the scores do.
+
+**Player profiles** open from any player's name (after a round is answered,
+in the Hall of Shame, or the ⓘ next to each name in Players & options):
+signature items and augments vs. the rest of the group, most played
+champions, win rate, and their weirdest build. Links like
+`.../#player=ube%23mlkt` open a profile directly.
 
 Riot's public API hides Mayhem games, so the collector reads them from the
 League client running on your PC (the client's local "LCU" API). The client
@@ -28,6 +36,7 @@ builds up the history over time.
 |---|---|
 | `players.txt` | Your friends' Riot IDs, one per line |
 | `collect.py` | Collector + exporter (Python 3.10+, no installs) |
+| `weirdness.py` | Weirdness scores vs. other players in your lobbies (used by the exporter) |
 | `descriptions.py` | Item/spell/augment descriptions for the hover popups (used by the exporter) |
 | `start_collector.bat` / `stop_collector.bat` | Start/stop the background collector (Windows) |
 | `docs/index.html`, `app.js`, `style.css` | The game |

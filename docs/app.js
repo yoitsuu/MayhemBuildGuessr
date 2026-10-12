@@ -30,6 +30,8 @@
   const portrait = (c) => `<div class="portrait">${c && c.icon
     ? `<img src="${esc(c.icon)}" alt="" onerror="this.replaceWith('?')">` : "?"}</div>`;
   const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
+  // A player's name that opens their profile panel
+  const plink = (rid, text) => `<span class="plink" role="button" tabindex="0" data-profile="${esc(rid)}">${esc(text || String(rid).split("#")[0])}</span>`;
   const short = (rid) => String(rid).split("#")[0];
   const norm = (x) => String(x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const fmtDate = (t) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -102,16 +104,33 @@
     return out;
   })();
 
+  // Exported scores (vs. other players in your lobbies) when available;
+  // otherwise the in-browser estimate above.
+  const EXTERNAL = D.rounds.some((r) => r.w);
+  function wOf(r) {
+    if (r.w) return { score: r.w.s, item: r.w.it, n: r.w.n, N: r.w.N, cn: r.w.cn, cN: r.w.cN, cls: r.w.cls, ext: true, c: r.c };
+    const w = W.get(keyOf(r));
+    return w && { ...w, c: r.c };
+  }
   function weirdReason(w) {
     if (!w || !w.item) return "";
     const item = look("items", w.item, "Item").name;
     const c = cap(w.cls);
+    if (w.ext) {
+      const champ = look("champions", w.c, "Champion").name;
+      if (w.N >= 5) return w.n === 0
+        ? `no other ${champ} in your lobbies built ${item} (out of ${w.N})`
+        : `${item} on ${champ}: ${w.n} of ${w.N} other ${champ} builds in your lobbies`;
+      return w.cn === 0
+        ? `no ${c} build from other players in your lobbies had ${item}`
+        : `${item} is in ${Math.round(100 * w.cn / Math.max(1, w.cN))}% of ${c} builds in your lobbies`;
+    }
     return w.n <= 1
       ? `the only ${c} build with ${item} (out of ${w.Nc})`
       : `${item} shows up in ${w.n} of ${w.Nc} ${c} builds`;
   }
   function weirdLine(r) {
-    const w = W.get(keyOf(r));
+    const w = wOf(r);
     if (!w) return "";
     return `<div class="weird"><span class="w-score">Weirdness ${w.score}</span><span>${esc(weirdReason(w))}</span></div>`;
   }
@@ -149,6 +168,7 @@
       <label class="chip ${selected.has(p) ? "on" : ""}" title="${esc(p)}">
         <input type="checkbox" data-p="${esc(p)}" ${selected.has(p) ? "checked" : ""}>
         ${esc(short(p))} <span class="n">${count(p)}</span>
+        <span class="pinfo" role="button" tabindex="0" data-profile="${esc(p)}" title="View profile">ⓘ</span>
       </label>`).join("");
     $$("#players input").forEach((cb) => cb.onchange = () => {
       cb.checked ? selected.add(cb.dataset.p) : selected.delete(cb.dataset.p);
@@ -264,7 +284,7 @@
       : `${portrait(null)}<div><div class="name">${esc(o.title || "Hidden champion")}</div>
          <div class="sub">${o.cls ? esc(rolesOf(r.c)) : "Class hidden"}</div></div>`;
     return `<section class="card">
-      ${o.byline ? `<div class="byline">Built by <b>${esc(short(o.byline))}</b></div>` : ""}
+      ${o.byline ? `<div class="byline">Built by <b>${o.link ? plink(o.byline) : esc(short(o.byline))}</b></div>` : ""}
       <div class="champ">${head}</div>
       ${itemsHtml(r)}
       ${hintsHtml(r, o.rev, o.hints)}
@@ -312,12 +332,13 @@
       if (P.answered) {
         const ok = P.answered === r.p;
         verdict = `<div class="verdict"><div>
-          <div class="msg ${ok ? "good" : "bad"}">${ok ? "Correct!" : `Nope, it was ${esc(short(r.p))}.`}</div>
+          <div class="msg ${ok ? "good" : "bad"}">${ok ? `Correct! It was ${plink(r.p)}.` : `Nope, it was ${plink(r.p)}.`}</div>
           <div class="meta">${esc(look("champions", r.c, "Champion").name)} · ${fmtDate(r.t)} · ${mins(r)} min · ${r.win ? "won" : "lost"}</div>
           </div>${nextBtn()}</div>`;
       }
       main.innerHTML = buildCard(r, {
         champ: P.rev.champ, cls: P.rev.cls, rev: P.rev, weird: !!P.answered,
+        byline: P.answered ? r.p : null, link: true,
         hints: [!P.rev.champ && !P.rev.cls && "cls", !P.rev.champ && "champ", "aug", "spells", "kda", "foes"].filter(Boolean),
       }) + `<section class="card"><p class="guess-title">Whose build is this?</p>
         <div class="guesses">${guesses}</div>${verdict}</section>`;
@@ -380,7 +401,7 @@
           </div>${nextBtn()}</div>`;
       }
       main.innerHTML = buildCard(r, {
-        champ: done, cls: C.rev.cls || done, rev: C.rev, byline: r.p, title: "Which champion?", weird: done,
+        champ: done, cls: C.rev.cls || done, rev: C.rev, byline: r.p, link: done, title: "Which champion?", weird: done,
         hints: [!C.rev.cls && "cls", "aug", "spells", "kda", "foes"].filter(Boolean),
       }) + `<section class="card picker">
         <div class="pick-head"><p class="guess-title">Which champion was this?</p>
@@ -479,10 +500,12 @@
           return `<div class="icon" data-tip="items:${id}" title="">${it.icon ? `<img src="${esc(it.icon)}" alt="${esc(it.name)}" loading="lazy">` : esc(it.name)}</div>`; }).join("");
         const augs = O.rev.aug ? `<div class="oc-aug">${r.aug.map((id) => { const o = look("augments", id, "Augment");
           return `<span data-tip="augments:${id}">${o.icon ? `<img src="${esc(o.icon)}" alt="">` : ""}</span>`; }).join("")}</div>` : "";
-        const w = W.get(keyOf(r));
-        const who = done ? `<div class="who"><span>${i === O.odd ? "Odd one: " : ""}<b>${esc(short(r.p))}</b></span>
+        const w = wOf(r);
+        const who = done ? `<div class="who"><span>${i === O.odd ? "Odd one: " : ""}<b>${plink(r.p)}</b></span>
           ${w ? `<span>Weirdness ${w.score}</span>` : ""}</div>` : "";
-        return `<button type="button" class="${cls}" data-card="${i}" ${done ? "disabled" : ""}>
+        // Not "disabled" once answered: disabled buttons swallow clicks on the
+        // player names inside them. guess() ignores repeat picks instead.
+        return `<button type="button" class="${cls}${done ? " done" : ""}" data-card="${i}">
           <div class="oc-head">${portrait(c)}<div><div class="oc-name">${esc(c.name)}</div>
             <div class="oc-sub">${esc(rolesOf(r.c))}</div></div><span class="k">${done ? "" : i + 1}</span></div>
           <div class="oc-items">${items}</div>${augs}${who}</button>`;
@@ -492,7 +515,7 @@
         const ok = O.picked === O.odd;
         verdict = `<div class="verdict"><div>
           <div class="msg ${ok ? "good" : "bad"}">${ok ? "Correct!" : "Nope!"}</div>
-          <div class="meta">Three were ${esc(short(O.a))}'s; the odd one was ${esc(short(O.b))}'s.</div>
+          <div class="meta">Three were ${plink(O.a)}'s; the odd one was ${plink(O.b)}'s.</div>
           </div>${nextBtn()}</div>`;
       }
       main.innerHTML = `<section class="card">
@@ -545,7 +568,7 @@
           <div class="meta">${k}/${d}/${a} · ${mins(r)} min · ${fmtDate(r.t)}</div></div>${nextBtn()}</div>`;
       }
       main.innerHTML = buildCard(r, {
-        champ: true, cls: true, rev: V.rev, byline: r.p, weird: done,
+        champ: true, cls: true, rev: V.rev, byline: r.p, link: done, weird: done,
         hints: ["kdaOnly", "aug", "spells", "foes"],
       }) + `<section class="card"><p class="guess-title">Did this build win?</p>
         <div class="wl">${btn(true, "Victory", "V")}${btn(false, "Defeat", "D")}</div>${verdict}</section>`;
@@ -645,7 +668,7 @@
       let verdict = "";
       if (answered) {
         verdict = `<div class="verdict"><div>
-          <div class="msg ${answered.ok ? "good" : "bad"}">${answered.ok ? "Correct!" : `Nope, it was ${esc(short(r.p))}.`}</div>
+          <div class="msg ${answered.ok ? "good" : "bad"}">${answered.ok ? `Correct! It was ${plink(r.p)}.` : `Nope, it was ${plink(r.p)}.`}</div>
           <div class="meta">${esc(look("champions", r.c, "Champion").name)} · ${fmtDate(r.t)} · ${mins(r)} min</div>
           </div>${nextBtn(idx === DAILY_ROUNDS - 1 ? "See results" : "Next round")}</div>`;
       }
@@ -681,7 +704,7 @@
       applyNav();                                    // clears the "not played" dot
       const recap = Dy.set.rounds.map((r, i) => {
         const c = look("champions", r.c, "Champion"), res = st.res[i];
-        return `<div class="rc">${portrait(c)}<div><b>${esc(short(r.p))}</b> · ${esc(c.name)}
+        return `<div class="rc">${portrait(c)}<div><b>${plink(r.p)}</b> · ${esc(c.name)}
           <div style="color:var(--muted);font-size:12px">${res.ok ? "You got it" : `You said ${esc(short(res.guess))}`}${res.hints ? ` · ${res.hints} hint${res.hints === 1 ? "" : "s"}` : ""}</div></div>
           <span class="mark">${res.ok ? "🟩" : "🟥"}</span></div>`;
       }).join("");
@@ -727,21 +750,23 @@
     start() { $("#score").innerHTML = ""; this.render(); },
     render() {
       const list = D.rounds.filter((r) => !shameWho || r.p === shameWho)
-        .map((r) => ({ r, w: W.get(keyOf(r)) })).filter((x) => x.w)
+        .map((r) => ({ r, w: wOf(r) })).filter((x) => x.w)
         .sort((a, b) => b.w.score - a.w.score || b.r.t - a.r.t).slice(0, 25);
       const rows = list.map(({ r, w }, i) => {
         const c = look("champions", r.c, "Champion");
         const items = r.items.map((id) => { const it = look("items", id, "Item");
           return `<div class="icon" data-tip="items:${id}">${it.icon ? `<img src="${esc(it.icon)}" alt="${esc(it.name)}" loading="lazy">` : esc(it.name)}</div>`; }).join("");
         return `<div class="sh"><div class="rank">${i + 1}</div><div>
-          <div class="sh-top">${portrait(c)}<div><div class="sh-name">${esc(c.name)} <span style="color:var(--muted);font-weight:400">by</span> ${esc(short(r.p))}</div>
+          <div class="sh-top">${portrait(c)}<div><div class="sh-name">${esc(c.name)} <span style="color:var(--muted);font-weight:400">by</span> ${plink(r.p)}</div>
             <div class="sh-sub">${fmtDate(r.t)} · ${r.kda.join("/")} · ${r.win ? "won" : "lost"}</div></div>
             <span class="wbadge" title="Weirdness">${w.score}</span></div>
           <div class="sh-items">${items}</div>
           <div class="why">${esc(cap(weirdReason(w)))}</div></div></div>`;
       }).join("");
       main.innerHTML = `<div class="shame-head"><div><h2>Hall of Shame</h2>
-          <p>The weirdest builds on record, by how rarely the group puts those items on that class of champion.</p></div>
+          <p>${EXTERNAL
+            ? "The weirdest builds on record, scored against how other players in your lobbies built the same champion."
+            : "The weirdest builds on record, by how rarely the group puts those items on that class of champion."}</p></div>
           <select id="shameWho"><option value="">Everyone</option>
             ${players.map((p) => `<option value="${esc(p)}" ${p === shameWho ? "selected" : ""}>${esc(short(p))}</option>`).join("")}</select></div>
         <div class="shame">${rows || `<div class="card empty-state">No builds yet.</div>`}</div>`;
@@ -749,6 +774,119 @@
     },
     key() {},
   };
+
+  // ======================================================================
+  // Player profiles: a panel opened by clicking any player's name
+  // ======================================================================
+  const pf = document.createElement("div");
+  pf.id = "profile"; pf.className = "pf"; pf.hidden = true;
+  pf.innerHTML = `<div class="pf-backdrop" data-close></div>
+    <aside class="pf-panel" role="dialog" aria-modal="true" aria-label="Player profile">
+      <button type="button" class="pf-close" data-close aria-label="Close">×</button>
+      <div class="pf-body"></div></aside>`;
+  document.body.appendChild(pf);
+  let pfOpen = null;
+
+  const realItem = (id) => !(D.items && D.items[id] && D.items[id].comp);
+  const pct = (x) => `${Math.round(100 * x)}%`;
+
+  // Things this player picks much more often than the rest of the group
+  function signature(mine, others, getList, filter = () => true, min = 2, top = 6) {
+    const count = (rs) => {
+      const m = new Map();
+      rs.forEach((r) => new Set(getList(r)).forEach((x) => { if (x && filter(x)) m.set(x, (m.get(x) || 0) + 1); }));
+      return m;
+    };
+    const cm = count(mine), co = count(others);
+    return [...cm].filter(([, n]) => n >= Math.min(min, Math.max(1, mine.length)))
+      .map(([x, n]) => ({ x, n, rate: n / mine.length, other: others.length ? (co.get(x) || 0) / others.length : 0 }))
+      .sort((a, b) => (b.rate - b.other) - (a.rate - a.other) || b.n - a.n).slice(0, top);
+  }
+
+  function profileHtml(rid) {
+    const mine = D.rounds.filter((r) => r.p === rid), others = D.rounds.filter((r) => r.p !== rid);
+    if (!mine.length) return `<h2 class="pf-name">${esc(short(rid))}</h2><p class="pf-muted">No builds recorded yet.</p>`;
+    const wins = mine.filter((r) => r.win).length;
+    const ws = mine.map(wOf).filter(Boolean);
+    const avgW = ws.length ? Math.round(ws.reduce((t, w) => t + w.score, 0) / ws.length) : null;
+
+    const items = signature(mine, others, (r) => r.items, realItem).map(({ x, n, rate, other }) => {
+      const it = look("items", x, "Item");
+      return `<div class="pf-row" data-tip="items:${x}"><span class="pf-ic">${iconEl(it)}</span>
+        <span class="pf-label">${esc(it.name)}</span>
+        <span class="pf-stat"><b>${pct(rate)}</b> of builds<br><span>group ${pct(other)}</span></span></div>`;
+    }).join("");
+    const augs = signature(mine, others, (r) => r.aug, () => true, 2, 5).map(({ x, rate, other }) => {
+      const a = look("augments", x, "Augment");
+      return `<div class="pf-row" data-tip="augments:${x}"><span class="pf-ic r-${esc(a.rarity || "")}">${iconEl(a)}</span>
+        <span class="pf-label">${esc(a.name)}</span>
+        <span class="pf-stat"><b>${pct(rate)}</b> of games<br><span>group ${pct(other)}</span></span></div>`;
+    }).join("");
+    const byChamp = {};
+    mine.forEach((r) => { const b = (byChamp[r.c] ||= { n: 0, w: 0 }); b.n++; if (r.win) b.w++; });
+    const champs = Object.entries(byChamp).sort((a, b) => b[1].n - a[1].n).slice(0, 8).map(([c, b]) => {
+      const ch = look("champions", c, "Champion");
+      return `<div class="pf-champ" title="${esc(ch.name)}">${portrait(ch)}<span>${esc(ch.name)}</span>
+        <span class="pf-muted">×${b.n} · ${pct(b.w / b.n)} W</span></div>`;
+    }).join("");
+    const weirdest = mine.map((r) => ({ r, w: wOf(r) })).filter((x) => x.w).sort((a, b) => b.w.score - a.w.score)[0];
+    const weirdHtml = weirdest ? (() => {
+      const { r, w } = weirdest, c = look("champions", r.c, "Champion");
+      const its = r.items.map((id) => { const it = look("items", id, "Item");
+        return `<div class="icon" data-tip="items:${id}">${it.icon ? `<img src="${esc(it.icon)}" alt="${esc(it.name)}" loading="lazy">` : esc(it.name)}</div>`; }).join("");
+      return `<div class="pf-weird"><div class="sh-top">${portrait(c)}<div><div class="sh-name">${esc(c.name)}</div>
+        <div class="sh-sub">${fmtDate(r.t)} · ${r.kda.join("/")} · ${r.win ? "won" : "lost"}</div></div>
+        <span class="wbadge">${w.score}</span></div><div class="sh-items">${its}</div>
+        <div class="why">${esc(cap(weirdReason(w)))}</div></div>`;
+    })() : "";
+
+    return `<h2 class="pf-name">${esc(short(rid))}</h2><div class="pf-muted">${esc(rid)}</div>
+      <div class="pf-stats">
+        <div><b>${mine.length}</b><span>builds</span></div>
+        <div><b>${pct(wins / mine.length)}</b><span>win rate</span></div>
+        <div><b>${avgW ?? "–"}</b><span>avg weirdness</span></div>
+      </div>
+      ${items ? `<h3>Signature items</h3><p class="pf-muted">Built much more often than the rest of the group.</p><div class="pf-list">${items}</div>` : ""}
+      ${augs ? `<h3>Favorite augments</h3><div class="pf-list">${augs}</div>` : ""}
+      <h3>Most played</h3><div class="pf-champs">${champs}</div>
+      ${weirdHtml ? `<h3>Weirdest build</h3>${weirdHtml}` : ""}`;
+  }
+
+  function openProfile(rid, fromHash = false) {
+    if (!players.includes(rid)) return;
+    hideTip();
+    pfOpen = rid;
+    pf.querySelector(".pf-body").innerHTML = profileHtml(rid);
+    pf.querySelector(".pf-panel").scrollTop = 0;
+    pf.hidden = false;
+    requestAnimationFrame(() => pf.classList.add("show"));
+    document.body.style.overflow = "hidden";
+    if (!fromHash) history.replaceState(null, "", "#player=" + encodeURIComponent(rid));
+    pf.querySelector(".pf-close").focus({ preventScroll: true });
+  }
+  function closeProfile() {
+    if (!pfOpen) return;
+    pfOpen = null;
+    hideTip();
+    pf.classList.remove("show");
+    document.body.style.overflow = "";
+    setTimeout(() => { if (!pfOpen) pf.hidden = true; }, 200);
+    if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+  }
+  function profileFromHash() {
+    const m = location.hash.match(/^#player=(.+)$/);
+    if (m) openProfile(decodeURIComponent(m[1]), true); else closeProfile();
+  }
+  pf.addEventListener("click", (e) => { if (e.target.closest("[data-close]")) closeProfile(); });
+  // Capture phase, so a name inside a card or a settings chip opens the
+  // profile instead of guessing / toggling the checkbox.
+  document.addEventListener("click", (e) => {
+    const el = e.target.closest("[data-profile]");
+    if (!el) return;
+    e.preventDefault(); e.stopPropagation();
+    openProfile(el.dataset.profile);
+  }, true);
+  addEventListener("hashchange", profileFromHash);
 
   // ======================================================================
   // Navigation
@@ -778,6 +916,10 @@
   });
 
   document.addEventListener("keydown", (e) => {
+    if (pfOpen) { if (e.key === "Escape") closeProfile(); return; }
+    if ((e.key === "Enter" || e.key === " ") && e.target.dataset && e.target.dataset.profile) {
+      e.preventDefault(); openProfile(e.target.dataset.profile); return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target.id === "search" || ["SELECT", "INPUT", "TEXTAREA"].includes(e.target.tagName)) return;
     if (e.target.tagName === "BUTTON" && (e.key === "Enter" || e.key === " ")) return;  // let the button handle it
@@ -833,4 +975,5 @@
   applyNav();
   renderPlayers();
   VIEWS[view].start();
+  profileFromHash();
 })();

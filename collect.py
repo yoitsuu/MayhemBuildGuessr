@@ -39,6 +39,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import weirdness
 from descriptions import attach_augment_descriptions, clean_client_markup
 
 HERE = Path(__file__).resolve().parent
@@ -324,11 +325,14 @@ def load_augments(lcu: LCU | None, wanted: set[int], report=False) -> dict:
 # Export
 # --------------------------------------------------------------------------- #
 
-def build_rounds(db) -> tuple[list[dict], list[str]]:
+def build_rounds(db) -> tuple[list[dict], list[str], list[tuple]]:
+    """Friends' builds as game rounds, plus (champion, items) for every other
+    participant -- the weirdness baseline. Strangers' data stays local: only
+    aggregate counts derived from it are exported."""
     players = read_players()
     by_puuid = {p: r for r, p in db.execute("SELECT riot_id, puuid FROM players")
                 if r in players and p}
-    rounds = []
+    rounds, strangers = [], []
     for gid, created, duration, raw, fetched in db.execute(
             "SELECT game_id, created, duration, raw, fetched_at FROM games ORDER BY created"):
         if (duration or 0) < MIN_SECONDS:
@@ -342,9 +346,12 @@ def build_rounds(db) -> tuple[list[dict], list[str]]:
                 for p in parts}
         for p in parts:
             puuid = ident.get(p["participantId"], {}).get("puuid")
-            if puuid not in by_puuid:         # only friends -- never strangers
-                continue
             st = p.get("stats", {})
+            if puuid not in by_puuid:         # strangers: baseline counts only
+                if not st.get("gameEndedInEarlySurrender"):
+                    strangers.append((p.get("championId"),
+                                      [st.get(f"item{i}") for i in range(6)]))
+                continue
             if st.get("gameEndedInEarlySurrender"):
                 continue
             items = [st.get(f"item{i}") for i in range(6)]
@@ -369,12 +376,12 @@ def build_rounds(db) -> tuple[list[dict], list[str]]:
                 "foes": [q.get("championId") for q in parts
                          if team[q["participantId"]] != team[p["participantId"]]],
             })
-    return rounds, players
+    return rounds, players, strangers
 
 
 def export(lcu: LCU | None) -> Path:
     db = open_db()
-    rounds, players = build_rounds(db)
+    rounds, players, strangers = build_rounds(db)
     used_champs = {r["c"] for r in rounds} | {c for r in rounds for c in r["foes"]}
     used_items = {i for r in rounds for i in r["items"]}
     used_spells = {s for r in rounds for s in r["spells"] if s}
@@ -384,8 +391,9 @@ def export(lcu: LCU | None) -> Path:
     # them all in its picker. (~170 entries, a few KB.)
     # The client also lists mode-specific copies of champions with big IDs
     # (e.g. 60001 "Jade_Annie"); skip those unless one actually shows up in a game.
+    champ_json = fetch_static(lcu, "v1/champion-summary.json") or []
     champs, by_name = {}, {}
-    for c in sorted(fetch_static(lcu, "v1/champion-summary.json") or [],
+    for c in sorted(champ_json,
                     key=lambda c: c.get("id") or 0):
         cid = c.get("id") or 0
         if cid <= 0 or (cid >= 10000 and cid not in used_champs):
@@ -396,12 +404,15 @@ def export(lcu: LCU | None) -> Path:
                        "icon": asset_url(c.get("squarePortraitPath")),
                        "roles": c.get("roles") or []}
         by_name.setdefault(c.get("name"), cid)
+    items_json = fetch_static(lcu, "v1/items.json") or []
+    real_item = weirdness.item_filter(items_json)
     items = {}
-    for it in fetch_static(lcu, "v1/items.json") or []:
+    for it in items_json:
         if it.get("id") in used_items:
             items[it["id"]] = {"name": it.get("name"), "icon": asset_url(it.get("iconPath")),
                                "desc": clean_client_markup(it.get("description")),
-                               "cost": it.get("priceTotal")}
+                               "cost": it.get("priceTotal"),
+                               "comp": not real_item(it["id"])}     # component/consumable
     spells = {}
     for s in fetch_static(lcu, "v1/summoner-spells.json") or []:
         if s.get("id") in used_spells:
@@ -412,6 +423,12 @@ def export(lcu: LCU | None) -> Path:
     if augs and described < len(augs):
         log.info(f"  augment descriptions found for {described}/{len(augs)}")
 
+    # Weirdness vs. strangers in the same lobbies (adds r["w"] to each round)
+    all_roles = {c.get("id"): (c.get("roles") or ["other"])[0]
+                 for c in champ_json}
+    wmeta = weirdness.compute(rounds, strangers, lambda c: all_roles.get(c, "other"), real_item)
+    log.info(f"  weirdness baseline: {wmeta['baseline_builds']} builds from other players")
+
     missing = {"items": len(used_items - items.keys()),
                "augments": len(used_augs - augs.keys()),
                "champions": len(used_champs - champs.keys())}
@@ -420,6 +437,7 @@ def export(lcu: LCU | None) -> Path:
         "players": players,
         "rounds": rounds,
         "champions": champs, "items": items, "spells": spells, "augments": augs,
+        "weird": wmeta,
     }
     OUT_FILE.parent.mkdir(exist_ok=True)
     OUT_FILE.write_text("window.MAYHEM_DATA = " + json.dumps(payload, separators=(",", ":"))
@@ -587,7 +605,7 @@ def find_static(argv):
     lcu = connect(argv)
     print(f"League client: {'connected' if lcu else 'not running (web sources only)'}")
     db = open_db()
-    rounds, _ = build_rounds(db)
+    rounds, _, _ = build_rounds(db)
     for rel in ["v1/champion-summary.json", "v1/items.json", "v1/summoner-spells.json"]:
         data = fetch_static(lcu, rel)
         print(f"  {rel:<28} -> {len(data) if data else 'FAILED'} entries")
