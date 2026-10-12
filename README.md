@@ -1,6 +1,11 @@
 # Whose Build? (ARAM Mayhem edition)
 
-Guess which friend made a given ARAM Mayhem build.
+Two ways to play with your friends' ARAM Mayhem builds:
+
+- **Whose build?** See a build and guess which friend made it.
+- **Which champ?** See a build and who made it, and pick the champion from a
+  draft-style grid (search box + class filters). Guesses per round is a
+  setting; wrong picks are listed as you go.
 
 Riot's public API hides Mayhem games, so the collector reads them from the
 League client running on your PC (the client's local "LCU" API). The client

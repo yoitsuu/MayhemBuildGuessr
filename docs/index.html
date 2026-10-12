@@ -97,6 +97,40 @@
   .verdict .msg.bad { color: var(--bad); }
   .verdict .meta { color: var(--muted); font-size: 13px; }
 
+  /* mode switch */
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 5px; margin-bottom: 14px; }
+  .modes button { border: 0; background: transparent; font-weight: 600; color: var(--muted); padding: 9px; }
+  .modes button.on { background: var(--gold); color: #1a1405; }
+  .modes button:hover:not(.on) { color: var(--text); }
+
+  .byline { color: var(--muted); font-size: 14px; margin: -4px 0 12px; }
+  .byline b { color: var(--text); }
+
+  /* champion picker */
+  .pick-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .pick-head .guess-title { margin: 0; }
+  .tries { color: var(--muted); font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+  .tries .pips { letter-spacing: 2px; color: var(--gold); }
+  .wrong-list { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; font-size: 13px; color: var(--muted); }
+  .wrong-list .w { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px 3px 3px; border: 1px solid var(--bad); background: #e0556118; border-radius: 999px; color: var(--text); }
+  .wrong-list .w img, .wrong-list .w .ph { width: 20px; height: 20px; border-radius: 50%; }
+  .search { width: 100%; font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; margin-bottom: 8px; }
+  .search:focus { outline: none; border-color: var(--gold); }
+  .classes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .classes button { font-size: 12px; padding: 5px 10px; border-radius: 999px; }
+  .classes button.on { border-color: var(--gold); background: var(--gold-soft); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)); gap: 8px; max-height: 380px; overflow-y: auto; padding: 2px 4px 2px 2px; }
+  .grid .ch { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px; border-radius: 8px; background: transparent; border: 1px solid transparent; }
+  .grid .ch .face { width: 100%; aspect-ratio: 1; border-radius: 6px; overflow: hidden; background: var(--panel-2); display: grid; place-items: center; font-size: 10px; color: var(--muted); }
+  .grid .ch .face img { width: 100%; height: 100%; object-fit: cover; }
+  .grid .ch span.nm { font-size: 11px; color: var(--muted); line-height: 1.2; text-align: center; word-break: break-word; }
+  .grid .ch:hover:not(:disabled) { border-color: var(--gold); }
+  .grid .ch.wrong { opacity: .35; }
+  .grid .ch.wrong .face { outline: 2px solid var(--bad); }
+  .grid .ch.correct { border-color: var(--good); background: #3fb37f26; opacity: 1; }
+  .grid .ch[hidden] { display: none; }
+  .grid .none { grid-column: 1 / -1; color: var(--muted); text-align: center; padding: 20px; }
+
   /* hover / tap popup */
   [data-tip] { cursor: help; }
   #tip {
@@ -117,6 +151,7 @@
 
   @media (max-width: 520px) {
     .items { grid-template-columns: repeat(3, 1fr); }
+    .grid { grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); max-height: 320px; }
     h1 { font-size: 21px; }
   }
 </style>
@@ -128,6 +163,11 @@
     <div class="score" id="score"></div>
   </header>
 
+  <nav class="modes" id="modes">
+    <button type="button" data-mode="player">Whose build?</button>
+    <button type="button" data-mode="champ">Which champ?</button>
+  </nav>
+
   <details class="settings card" id="settings">
     <summary>Players &amp; options</summary>
     <div class="row" style="justify-content:space-between">
@@ -136,7 +176,7 @@
     </div>
     <div class="players" id="players"></div>
     <div class="row">
-      <label>At round start, show
+      <label class="for-player">At round start, show
         <select id="champStart">
           <option value="none">nothing</option>
           <option value="class">champion class</option>
@@ -148,6 +188,8 @@
           <option value="3">3 days</option><option value="7">7 days</option>
           <option value="14">14 days</option>
         </select></label>
+      <label class="for-champ">Guesses per round
+        <input type="number" id="tries" min="1" max="10" style="width:56px;font:inherit;background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:3px 6px"></label>
     </div>
     <div class="pool" id="pool"></div>
   </details>
@@ -180,9 +222,22 @@
   const players = D.players;
   let selected = new Set(store.get("players", players).filter((p) => players.includes(p)));
   if (selected.size === 0) selected = new Set(players);
-  const champStart = $("#champStart"), skipDays = $("#skipDays");
+  const champStart = $("#champStart"), skipDays = $("#skipDays"), triesIn = $("#tries");
   champStart.value = store.get("champStart", "none");
   skipDays.value = String(store.get("skipDays", 0));
+  triesIn.value = String(store.get("tries", 3));
+  let mode = store.get("mode", "player") === "champ" ? "champ" : "player";
+  const maxTries = () => Math.min(10, Math.max(1, parseInt(triesIn.value, 10) || 3));
+
+  function applyMode() {
+    document.querySelectorAll("#modes button").forEach((b) => b.classList.toggle("on", b.dataset.mode === mode));
+    document.querySelectorAll(".for-player").forEach((el) => el.style.display = mode === "player" ? "" : "none");
+    document.querySelectorAll(".for-champ").forEach((el) => el.style.display = mode === "champ" ? "" : "none");
+  }
+  document.querySelectorAll("#modes button").forEach((b) => b.onclick = () => {
+    if (b.dataset.mode === mode) return;
+    mode = b.dataset.mode; store.set("mode", mode); applyMode(); newRound();
+  });
 
   const short = (rid) => rid.split("#")[0];
   const countFor = (p) => D.rounds.filter((r) => r.p === p).length;
@@ -205,6 +260,8 @@
     store.set("players", [...selected]);
     store.set("champStart", champStart.value);
     store.set("skipDays", +skipDays.value);
+    triesIn.value = String(maxTries());
+    store.set("tries", maxTries());
     renderPlayers();
     newRound();
   }
@@ -212,6 +269,7 @@
   $("#none").onclick = () => { selected = new Set(); saveAndRestart(); };
   champStart.onchange = saveAndRestart;
   skipDays.onchange = saveAndRestart;
+  triesIn.onchange = saveAndRestart;
 
   // ---------- data helpers ----------
   function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -234,14 +292,29 @@
   }
 
   // ---------- score ----------
-  const score = { right: 0, total: 0, streak: 0, best: store.get("best", 0) };
+  // Separate score per mode; best streaks are remembered per mode.
+  const bestKey = (m) => m === "champ" ? "best.champ" : "best";
+  const scores = {
+    player: { right: 0, total: 0, streak: 0, best: store.get(bestKey("player"), 0) },
+    champ:  { right: 0, total: 0, streak: 0, best: store.get(bestKey("champ"), 0) },
+  };
+  function record(ok) {
+    const sc = scores[mode];
+    sc.total++;
+    if (ok) { sc.right++; sc.streak++; } else sc.streak = 0;
+    if (sc.streak > sc.best) { sc.best = sc.streak; store.set(bestKey(mode), sc.best); }
+    renderScore();
+  }
   function renderScore() {
-    $("#score").innerHTML = `<b>${score.right}/${score.total}</b><br>streak ${score.streak} · best ${score.best}`;
+    const sc = scores[mode];
+    $("#score").innerHTML = `<b>${sc.right}/${sc.total}</b><br>streak ${sc.streak} · best ${sc.best}`;
   }
 
   // ---------- rounds ----------
   const seen = new Set();
   let cur = null, revealed = {}, answered = false;
+  // "Which champ?" state for the current round
+  let wrong = [], pickQuery = "", pickClass = "";
 
   function pickRound() {
     const pool = eligible();
@@ -259,8 +332,8 @@
   function newRound() {
     renderScore();
     const choices = choiceList();
-    if (choices.length < 2) {
-      main.innerHTML = `<div class="card empty-state">Pick at least two players with games in <b>Players &amp; options</b>.</div>`;
+    if (choices.length < (mode === "champ" ? 1 : 2)) {
+      main.innerHTML = `<div class="card empty-state">Pick at least ${mode === "champ" ? "one player" : "two players"} with games in <b>Players &amp; options</b>.</div>`;
       $("#settings").open = true;
       return;
     }
@@ -270,9 +343,12 @@
       return;
     }
     seen.add(cur.g + "|" + cur.p);
-    revealed = { champ: champStart.value === "champ", cls: champStart.value !== "none" };
+    revealed = mode === "champ" ? {}
+      : { champ: champStart.value === "champ", cls: champStart.value !== "none" };
     answered = false;
+    wrong = []; pickQuery = ""; pickClass = "";
     render();
+    if (mode === "champ" && hoverable) { const s = $("#search"); if (s) s.focus(); }
   }
 
   function render() {
@@ -284,8 +360,9 @@
       ? `<div class="portrait">${champ.icon ? `<img src="${esc(champ.icon)}" alt="" onerror="this.replaceWith('?')">` : "?"}</div>
          <div><div class="name">${esc(champ.name)}</div><div class="sub">${esc(roles)}</div></div>`
       : `<div class="portrait">?</div>
-         <div><div class="name">Hidden champion</div>
+         <div><div class="name">${mode === "champ" ? "Which champion?" : "Hidden champion"}</div>
          <div class="sub">${revealed.cls ? esc(roles) : "Class hidden"}</div></div>`;
+    const byline = mode === "champ" ? `<div class="byline">Built by <b>${esc(short(r.p))}</b></div>` : "";
 
     const slots = [...r.items];
     while (slots.length < 6) slots.push(null);
@@ -298,7 +375,7 @@
 
     const hintBtns = [
       !revealed.champ && !revealed.cls && ["cls", "Champion class"],
-      !revealed.champ && ["champ", "Champion"],
+      mode === "player" && !revealed.champ && ["champ", "Champion"],
       ["aug", "Augments"],
       ["spells", "Summoner spells"],
       ["kda", "KDA & result"],
@@ -352,44 +429,161 @@
         <button type="button" class="primary" id="next">Next round ↵</button></div>`;
     }
 
-    main.innerHTML = `
-      <section class="card">
-        <div class="champ">${champHtml}</div>
-        <div class="items">${itemsHtml}</div>
-        <div class="hints">${hintBtns}</div>
-        <div class="hint-out">${hintOut}</div>
-      </section>
+    const bottom = mode === "champ" ? pickerHtml(r) : `
       <section class="card">
         <p class="guess-title">Whose build is this?</p>
         <div class="guesses">${guessHtml}</div>
         ${verdict}
       </section>`;
 
+    main.innerHTML = `
+      <section class="card">
+        ${byline}
+        <div class="champ">${champHtml}</div>
+        <div class="items">${itemsHtml}</div>
+        <div class="hints">${hintBtns}</div>
+        <div class="hint-out">${hintOut}</div>
+      </section>
+      ${bottom}`;
+
     main.querySelectorAll("[data-hint]").forEach((b) => b.onclick = () => { revealed[b.dataset.hint] = true; render(); });
     main.querySelectorAll("[data-guess]").forEach((b) => b.onclick = () => guess(b.dataset.guess));
+    if (mode === "champ") wirePicker();
     const next = $("#next");
     if (next) { next.onclick = newRound; next.focus(); }
+  }
+
+  // ---------- "Which champ?" picker ----------
+  const norm = (x) => String(x || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const CLASSES = ["fighter", "tank", "mage", "assassin", "marksman", "support"];
+  const allChamps = () => Object.entries(D.champions || {})
+    .map(([id, c]) => ({ id: +id, ...c }))
+    .filter((c) => c.id > 0 && c.name)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  function pickerHtml(r) {
+    const n = maxTries(), left = n - wrong.length;
+    const done = !!answered;
+    const pips = "●".repeat(Math.max(0, left)) + "○".repeat(Math.min(n, wrong.length));
+    const wrongHtml = wrong.length ? `<div class="wrong-list">Wrong:
+      ${wrong.map((id) => { const c = look("champions", id, "Champion");
+        return `<span class="w">${iconEl(c)}${esc(c.name)}</span>`; }).join("")}</div>` : "";
+    const cards = allChamps().map((c) => {
+      let cls = "ch";
+      if (wrong.includes(c.id)) cls += " wrong";
+      if (done && c.id === r.c) cls += " correct";
+      return `<button type="button" class="${cls}" data-champ="${c.id}"
+        data-k="${esc(norm(c.name) + " " + norm(c.alias))}" data-roles="${esc((c.roles || []).join(" "))}"
+        title="${esc(c.name)}" ${done || wrong.includes(c.id) ? "disabled" : ""}>
+        <span class="face">${c.icon ? `<img src="${esc(c.icon)}" alt="" loading="lazy" onerror="this.replaceWith('?')">` : "?"}</span>
+        <span class="nm">${esc(c.name)}</span></button>`;
+    }).join("");
+
+    let verdict = "";
+    if (done) {
+      const ok = answered === "win";
+      const champ = look("champions", r.c, "Champion");
+      const date = new Date(r.t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      verdict = `<div class="verdict">
+        <div><div class="msg ${ok ? "good" : "bad"}">${ok
+          ? `Correct! ${wrong.length ? `(${wrong.length + 1} guesses)` : "First try!"}`
+          : `Out of guesses. It was ${esc(champ.name)}.`}</div>
+        <div class="meta">${esc(short(r.p))} · ${date} · ${Math.round(r.dur / 60)} min · ${r.win ? "won" : "lost"}</div></div>
+        <button type="button" class="primary" id="next">Next round ↵</button></div>`;
+    }
+
+    return `<section class="card picker">
+      <div class="pick-head">
+        <p class="guess-title">Which champion was this?</p>
+        <span class="tries">${done ? "" : `<span class="pips">${pips}</span>${left} of ${n} guess${n === 1 ? "" : "es"} left`}</span>
+      </div>
+      ${wrongHtml}
+      ${verdict}
+      ${done ? "" : `<input id="search" class="search" type="search" placeholder="Search champions…" autocomplete="off" value="${esc(pickQuery)}">
+      <div class="classes">
+        <button type="button" data-cls="" class="${pickClass ? "" : "on"}">All</button>
+        ${CLASSES.map((k) => `<button type="button" data-cls="${k}" class="${pickClass === k ? "on" : ""}">${cap(k)}</button>`).join("")}
+      </div>`}
+      <div class="grid" id="grid">${cards}<div class="none" hidden>No champions match.</div></div>
+    </section>`;
+  }
+
+  function filterGrid() {
+    const q = norm(pickQuery);
+    let shown = 0;
+    document.querySelectorAll("#grid .ch").forEach((b) => {
+      const ok = (!q || b.dataset.k.split(" ").some((k) => k.includes(q)))
+              && (!pickClass || b.dataset.roles.split(" ").includes(pickClass));
+      b.hidden = !ok;
+      if (ok) shown++;
+    });
+    const none = document.querySelector("#grid .none");
+    if (none) none.hidden = shown > 0;
+  }
+
+  function firstVisibleChamp() {
+    return [...document.querySelectorAll("#grid .ch")].find((b) => !b.hidden && !b.disabled);
+  }
+
+  function wirePicker() {
+    const search = $("#search");
+    if (search) {
+      search.oninput = () => { pickQuery = search.value; filterGrid(); };
+      search.onkeydown = (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const b = firstVisibleChamp();
+          if (b && (pickQuery || pickClass)) guessChamp(+b.dataset.champ);
+        } else if (e.key === "Escape") { search.value = ""; pickQuery = ""; filterGrid(); }
+      };
+    }
+    main.querySelectorAll("[data-cls]").forEach((b) => b.onclick = () => {
+      pickClass = b.dataset.cls;
+      main.querySelectorAll("[data-cls]").forEach((x) => x.classList.toggle("on", x === b));
+      filterGrid();
+    });
+    main.querySelectorAll("#grid .ch").forEach((b) => b.onclick = () => guessChamp(+b.dataset.champ));
+    if (!answered) filterGrid();
+  }
+
+  function guessChamp(id) {
+    if (answered || wrong.includes(id)) return;
+    if (id === cur.c) { answered = "win"; record(true); }
+    else {
+      wrong.push(id);
+      if (wrong.length >= maxTries()) { answered = "lose"; record(false); }
+    }
+    if (answered) revealed.champ = true;
+    else { pickQuery = ""; }          // clear the search after a wrong guess
+    render();
+    const s = $("#search");
+    if (s && hoverable) s.focus();
   }
 
   function guess(p) {
     if (answered) return;
     answered = p;
     revealed.champ = true;
-    score.total++;
-    if (p === cur.p) { score.right++; score.streak++; } else score.streak = 0;
-    if (score.streak > score.best) { score.best = score.streak; store.set("best", score.best); }
-    renderScore();
+    record(p === cur.p);
     render();
   }
 
   document.addEventListener("keydown", (e) => {
+    if (e.target.id === "search") return;          // handled by the search box
     if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
     if (answered && (e.key === "Enter" || e.key === " ")) {
       if (e.target.tagName === "BUTTON") return;   // the focused button handles it
       e.preventDefault(); newRound(); return;
     }
+    // "Which champ?": start typing anywhere to search
+    if (mode === "champ" && !answered && e.key.length === 1 && /[a-z0-9' .&]/i.test(e.key)
+        && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const s = $("#search");
+      if (s) { e.preventDefault(); s.focus(); s.value += e.key; pickQuery = s.value; filterGrid(); }
+      return;
+    }
     const n = parseInt(e.key, 10);
-    if (!answered && n >= 1 && n <= 9) {
+    if (mode === "player" && !answered && n >= 1 && n <= 9) {
       const choices = choiceList();
       if (choices[n - 1]) guess(choices[n - 1]);
     }
@@ -440,6 +634,7 @@
     + (Object.values(D.augments || {}).some((a) => a.desc)
       ? `<br>Augment descriptions from the <a href="https://wiki.leagueoflegends.com/en-us/ARAM_Mayhem/Augments" style="color:inherit">League of Legends Wiki</a> (CC BY-SA).` : "");
 
+  applyMode();
   renderPlayers();
   newRound();
 })();

@@ -379,10 +379,13 @@ def export(lcu: LCU | None) -> Path:
     used_spells = {s for r in rounds for s in r["spells"] if s}
     used_augs = {a for r in rounds for a in r["aug"]}
 
+    # Every champion, not just ones in our games: "Which champ?" mode offers
+    # them all in its picker. (~170 entries, a few KB.)
     champs = {}
     for c in fetch_static(lcu, "v1/champion-summary.json") or []:
-        if c.get("id") in used_champs:
+        if (c.get("id") or 0) > 0:
             champs[c["id"]] = {"name": c.get("name"),
+                               "alias": c.get("alias"),
                                "icon": asset_url(c.get("squarePortraitPath")),
                                "roles": c.get("roles") or []}
     items = {}
