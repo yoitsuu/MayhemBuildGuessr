@@ -329,8 +329,8 @@ def build_rounds(db) -> tuple[list[dict], list[str]]:
     by_puuid = {p: r for r, p in db.execute("SELECT riot_id, puuid FROM players")
                 if r in players and p}
     rounds = []
-    for gid, created, duration, raw in db.execute(
-            "SELECT game_id, created, duration, raw FROM games ORDER BY created"):
+    for gid, created, duration, raw, fetched in db.execute(
+            "SELECT game_id, created, duration, raw, fetched_at FROM games ORDER BY created"):
         if (duration or 0) < MIN_SECONDS:
             continue
         game = json.loads(raw)
@@ -355,6 +355,7 @@ def build_rounds(db) -> tuple[list[dict], list[str]]:
             rounds.append({
                 "g": gid,
                 "t": created,
+                "f": (fetched or 0) * 1000,   # when we collected it (daily pool uses this)
                 "dur": duration,
                 "p": by_puuid[puuid],
                 "c": p.get("championId"),
@@ -381,13 +382,20 @@ def export(lcu: LCU | None) -> Path:
 
     # Every champion, not just ones in our games: "Which champ?" mode offers
     # them all in its picker. (~170 entries, a few KB.)
-    champs = {}
-    for c in fetch_static(lcu, "v1/champion-summary.json") or []:
-        if (c.get("id") or 0) > 0:
-            champs[c["id"]] = {"name": c.get("name"),
-                               "alias": c.get("alias"),
-                               "icon": asset_url(c.get("squarePortraitPath")),
-                               "roles": c.get("roles") or []}
+    # The client also lists mode-specific copies of champions with big IDs
+    # (e.g. 60001 "Jade_Annie"); skip those unless one actually shows up in a game.
+    champs, by_name = {}, {}
+    for c in sorted(fetch_static(lcu, "v1/champion-summary.json") or [],
+                    key=lambda c: c.get("id") or 0):
+        cid = c.get("id") or 0
+        if cid <= 0 or (cid >= 10000 and cid not in used_champs):
+            continue
+        if c.get("name") in by_name and cid not in used_champs:
+            continue                                   # duplicate name, unused
+        champs[cid] = {"name": c.get("name"), "alias": c.get("alias"),
+                       "icon": asset_url(c.get("squarePortraitPath")),
+                       "roles": c.get("roles") or []}
+        by_name.setdefault(c.get("name"), cid)
     items = {}
     for it in fetch_static(lcu, "v1/items.json") or []:
         if it.get("id") in used_items:

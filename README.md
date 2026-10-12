@@ -1,11 +1,21 @@
 # Whose Build? (ARAM Mayhem edition)
 
-Two ways to play with your friends' ARAM Mayhem builds:
+Party games built on your friends' ARAM Mayhem builds.
 
-- **Whose build?** See a build and guess which friend made it.
-- **Which champ?** See a build and who made it, and pick the champion from a
-  draft-style grid (search box + class filters). Guesses per round is a
-  setting; wrong picks are listed as you go.
+**Play** has four modes:
+- **Whose build?** See a build, guess which friend made it.
+- **Which champ?** See a build and who made it, pick the champion from a
+  draft-style grid (search + class filters, guesses per round is a setting).
+- **Odd one out:** four builds, three by the same friend. Find the impostor.
+- **Did it win?** See the build, guess the result.
+
+**Daily** is the same 5 "Whose build?" rounds for everyone each day (resets at
+midnight Pacific), with a copyable emoji result for the group chat. It only
+uses games collected before the day started, so it can't change mid-day.
+
+**Hall of Shame** ranks the weirdest builds. Weirdness (0-100) measures how
+rarely the group puts those items on that class of champion; it's also shown
+after each answer.
 
 Riot's public API hides Mayhem games, so the collector reads them from the
 League client running on your PC (the client's local "LCU" API). The client
@@ -20,7 +30,7 @@ builds up the history over time.
 | `collect.py` | Collector + exporter (Python 3.10+, no installs) |
 | `descriptions.py` | Item/spell/augment descriptions for the hover popups (used by the exporter) |
 | `start_collector.bat` / `stop_collector.bat` | Start/stop the background collector (Windows) |
-| `docs/index.html` | The game |
+| `docs/index.html`, `app.js`, `style.css` | The game |
 | `docs/data.js` | The exported games (generated, gets published) |
 | `mayhem.db` | Local database of raw games (generated, never published) |
 | `lcu_probe.py` | Diagnostic script from setup, not needed day to day |
